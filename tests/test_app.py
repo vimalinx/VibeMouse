@@ -270,3 +270,149 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         self.assertEqual(openclaw_calls, ["hello world"])
         self.assertEqual(inject_calls, [])
         self.assertEqual(removed_paths, [Path("/tmp/transcribe.wav")])
+
+
+class VoiceMouseAppPrewarmTests(unittest.TestCase):
+    @staticmethod
+    def _make_subject() -> VoiceMouseApp:
+        return object.__new__(VoiceMouseApp)
+
+    def test_maybe_prewarm_starts_worker_with_configured_delay(self) -> None:
+        subject = self._make_subject()
+        setattr(
+            subject,
+            "_config",
+            SimpleNamespace(prewarm_on_start=True, prewarm_delay_s=2.5),
+        )
+        setattr(subject, "_prewarm_started", False)
+
+        with patch("vibemouse.app.threading.Thread") as thread_cls:
+            maybe_prewarm = cast(
+                Callable[[], None],
+                getattr(subject, "_maybe_prewarm_transcriber"),
+            )
+            maybe_prewarm()
+
+        self.assertTrue(getattr(subject, "_prewarm_started"))
+        thread_cls.assert_called_once()
+        thread_kwargs = thread_cls.call_args.kwargs
+        self.assertEqual(thread_kwargs["args"], (2.5,))
+        self.assertTrue(thread_kwargs["daemon"])
+        target = thread_kwargs["target"]
+        self.assertIs(getattr(target, "__self__", None), subject)
+        self.assertIs(
+            getattr(target, "__func__", None),
+            getattr(VoiceMouseApp, "_prewarm_transcriber"),
+        )
+        thread_cls.return_value.start.assert_called_once_with()
+
+    def test_maybe_prewarm_skips_when_disabled(self) -> None:
+        subject = self._make_subject()
+        setattr(
+            subject,
+            "_config",
+            SimpleNamespace(prewarm_on_start=False, prewarm_delay_s=2.0),
+        )
+        setattr(subject, "_prewarm_started", False)
+
+        with patch("vibemouse.app.threading.Thread") as thread_cls:
+            maybe_prewarm = cast(
+                Callable[[], None],
+                getattr(subject, "_maybe_prewarm_transcriber"),
+            )
+            maybe_prewarm()
+
+        self.assertFalse(getattr(subject, "_prewarm_started"))
+        thread_cls.assert_not_called()
+
+    def test_maybe_prewarm_skips_when_already_started(self) -> None:
+        subject = self._make_subject()
+        setattr(
+            subject,
+            "_config",
+            SimpleNamespace(prewarm_on_start=True, prewarm_delay_s=2.0),
+        )
+        setattr(subject, "_prewarm_started", True)
+
+        with patch("vibemouse.app.threading.Thread") as thread_cls:
+            maybe_prewarm = cast(
+                Callable[[], None],
+                getattr(subject, "_maybe_prewarm_transcriber"),
+            )
+            maybe_prewarm()
+
+        thread_cls.assert_not_called()
+
+    def test_prewarm_transcriber_waits_before_warmup(self) -> None:
+        subject = self._make_subject()
+        wait_calls: list[float] = []
+        prewarm_calls: list[bool] = []
+        setattr(
+            subject,
+            "_stop_event",
+            SimpleNamespace(wait=lambda timeout: wait_calls.append(timeout) or False),
+        )
+        setattr(
+            subject,
+            "_transcriber",
+            SimpleNamespace(prewarm=lambda: prewarm_calls.append(True)),
+        )
+
+        prewarm = cast(
+            Callable[[float], None],
+            getattr(subject, "_prewarm_transcriber"),
+        )
+        prewarm(1.5)
+
+        self.assertEqual(wait_calls, [1.5])
+        self.assertEqual(prewarm_calls, [True])
+
+    def test_prewarm_transcriber_skips_when_stopped_during_delay(self) -> None:
+        subject = self._make_subject()
+        wait_calls: list[float] = []
+        prewarm_calls: list[bool] = []
+        setattr(
+            subject,
+            "_stop_event",
+            SimpleNamespace(wait=lambda timeout: wait_calls.append(timeout) or True),
+        )
+        setattr(
+            subject,
+            "_transcriber",
+            SimpleNamespace(prewarm=lambda: prewarm_calls.append(True)),
+        )
+
+        prewarm = cast(
+            Callable[[float], None],
+            getattr(subject, "_prewarm_transcriber"),
+        )
+        prewarm(2.0)
+
+        self.assertEqual(wait_calls, [2.0])
+        self.assertEqual(prewarm_calls, [])
+
+    def test_prewarm_transcriber_without_delay_warms_immediately(self) -> None:
+        subject = self._make_subject()
+        prewarm_calls: list[bool] = []
+        setattr(
+            subject,
+            "_stop_event",
+            SimpleNamespace(
+                wait=lambda timeout: (_ for _ in ()).throw(
+                    AssertionError("wait should not be called when delay is zero")
+                )
+            ),
+        )
+        setattr(
+            subject,
+            "_transcriber",
+            SimpleNamespace(prewarm=lambda: prewarm_calls.append(True)),
+        )
+
+        prewarm = cast(
+            Callable[[float], None],
+            getattr(subject, "_prewarm_transcriber"),
+        )
+        prewarm(0.0)
+
+        self.assertEqual(prewarm_calls, [True])

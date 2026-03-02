@@ -26,6 +26,7 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.enter_mode, "enter")
         self.assertEqual(config.button_debounce_ms, 150)
         self.assertTrue(config.prewarm_on_start)
+        self.assertEqual(config.prewarm_delay_s, 0.0)
         self.assertEqual(config.status_file.name, "vibemouse-status.json")
         self.assertEqual(config.openclaw_command, "openclaw")
         self.assertEqual(config.openclaw_agent, "main")
@@ -83,6 +84,28 @@ class LoadConfigTests(unittest.TestCase):
             config = load_config()
 
         self.assertFalse(config.prewarm_on_start)
+
+    def test_prewarm_delay_can_be_configured(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"VIBEMOUSE_PREWARM_DELAY_S": "2.5"},
+            clear=True,
+        ):
+            config = load_config()
+
+        self.assertEqual(config.prewarm_delay_s, 2.5)
+
+    def test_negative_prewarm_delay_is_rejected(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"VIBEMOUSE_PREWARM_DELAY_S": "-0.1"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "VIBEMOUSE_PREWARM_DELAY_S must be a non-negative float",
+            ):
+                _ = load_config()
 
     def test_status_file_can_be_overridden(self) -> None:
         with patch.dict(

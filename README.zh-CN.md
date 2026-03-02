@@ -184,6 +184,7 @@ vibemouse deploy --preset stable
 | `VIBEMOUSE_GESTURE_THRESHOLD_PX` | `120` | 手势识别阈值 |
 | `VIBEMOUSE_GESTURE_FREEZE_POINTER` | `true` | 手势期间是否冻结指针 |
 | `VIBEMOUSE_PREWARM_ON_START` | `true` | 启动预热，降低首次识别延迟 |
+| `VIBEMOUSE_PREWARM_DELAY_S` | `0.0` | 启动后延迟执行 ASR 预热，改善初始响应速度 |
 | `VIBEMOUSE_STATUS_FILE` | `$XDG_RUNTIME_DIR/vibemouse-status.json` | 运行状态文件（状态栏读取） |
 
 完整配置以 `vibemouse/config.py` 为准。

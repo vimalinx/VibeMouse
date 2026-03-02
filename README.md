@@ -184,6 +184,7 @@ Useful flags:
 | `VIBEMOUSE_GESTURE_THRESHOLD_PX` | `120` | Gesture movement threshold |
 | `VIBEMOUSE_GESTURE_FREEZE_POINTER` | `true` | Freeze pointer during gesture capture |
 | `VIBEMOUSE_PREWARM_ON_START` | `true` | Preload ASR on startup to reduce first-use latency |
+| `VIBEMOUSE_PREWARM_DELAY_S` | `0.0` | Delay ASR prewarm after startup to improve initial responsiveness |
 | `VIBEMOUSE_STATUS_FILE` | `$XDG_RUNTIME_DIR/vibemouse-status.json` | Runtime status for bars/widgets |
 
 Full configuration source of truth: `vibemouse/config.py`.

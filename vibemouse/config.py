@@ -58,6 +58,12 @@ def _require_positive_float(name: str, value: float) -> float:
     return value
 
 
+def _require_non_negative_float(name: str, value: float) -> float:
+    if value < 0:
+        raise ValueError(f"{name} must be a non-negative float, got {value}")
+    return value
+
+
 def _read_choice(name: str, default: str, allowed: set[str]) -> str:
     value = os.getenv(name, default).strip().lower()
     if value not in allowed:
@@ -95,6 +101,7 @@ class AppConfig:
     auto_paste: bool
     trust_remote_code: bool
     prewarm_on_start: bool
+    prewarm_delay_s: float
     status_file: Path
     openclaw_command: str
     openclaw_agent: str | None
@@ -191,6 +198,10 @@ def load_config() -> AppConfig:
         "VIBEMOUSE_OPENCLAW_RETRIES",
         _read_int("VIBEMOUSE_OPENCLAW_RETRIES", 0),
     )
+    prewarm_delay_s = _require_non_negative_float(
+        "VIBEMOUSE_PREWARM_DELAY_S",
+        _read_float("VIBEMOUSE_PREWARM_DELAY_S", 0.0),
+    )
 
     return AppConfig(
         sample_rate=sample_rate,
@@ -220,6 +231,7 @@ def load_config() -> AppConfig:
         auto_paste=_read_bool("VIBEMOUSE_AUTO_PASTE", False),
         trust_remote_code=_read_bool("VIBEMOUSE_TRUST_REMOTE_CODE", False),
         prewarm_on_start=_read_bool("VIBEMOUSE_PREWARM_ON_START", True),
+        prewarm_delay_s=prewarm_delay_s,
         status_file=status_file,
         openclaw_command=openclaw_command,
         openclaw_agent=openclaw_agent,

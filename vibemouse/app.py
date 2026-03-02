@@ -72,7 +72,8 @@ class VoiceMouseApp:
             + f"gesture_threshold_px={self._config.gesture_threshold_px}, "
             + f"gesture_freeze_pointer={self._config.gesture_freeze_pointer}, "
             + f"gesture_restore_cursor={self._config.gesture_restore_cursor}, "
-            + f"prewarm_on_start={self._config.prewarm_on_start}. "
+            + f"prewarm_on_start={self._config.prewarm_on_start}, "
+            + f"prewarm_delay_s={self._config.prewarm_delay_s}. "
             + "Press side-front to start/stop recording. While recording, side-rear sends transcript to OpenClaw; otherwise side-rear sends Enter."
         )
         self._maybe_prewarm_transcriber()
@@ -320,10 +321,19 @@ class VoiceMouseApp:
             return
         self._prewarm_started = True
 
-        worker = threading.Thread(target=self._prewarm_transcriber, daemon=True)
+        worker = threading.Thread(
+            target=self._prewarm_transcriber,
+            args=(self._config.prewarm_delay_s,),
+            daemon=True,
+        )
         worker.start()
 
-    def _prewarm_transcriber(self) -> None:
+    def _prewarm_transcriber(self, delay_s: float = 0.0) -> None:
+        if delay_s > 0:
+            print(f"Transcriber prewarm scheduled in {delay_s:.1f}s")
+            if self._stop_event.wait(timeout=delay_s):
+                return
+
         try:
             self._transcriber.prewarm()
             print("Transcriber prewarm complete")
