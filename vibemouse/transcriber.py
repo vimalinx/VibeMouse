@@ -173,7 +173,9 @@ class _FunASRBackend:
             )
         except Exception as error:
             raise RuntimeError(
-                "FunASR is not installed or not importable in current environment"
+                "FunASR import failed. "
+                + f"{error.__class__.__name__}: {error}. "
+                + "Ensure dependencies are installed in venv (`pip install -e .`)."
             ) from error
 
         auto_model_ctor = cast(_AutoModelCtor, getattr(funasr_module, "AutoModel"))
@@ -237,7 +239,9 @@ class _FunASRONNXBackend:
                 postprocess = self._load_postprocess()
             except Exception as error:
                 raise RuntimeError(
-                    "funasr_onnx backend requires funasr-onnx and funasr packages"
+                    "funasr_onnx dependency import failed. "
+                    + f"{error.__class__.__name__}: {error}. "
+                    + "Ensure dependencies are installed in venv (`pip install -e .`)."
                 ) from error
 
             requested_path = self._resolve_onnx_model_dir()

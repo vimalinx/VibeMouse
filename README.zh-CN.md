@@ -40,6 +40,8 @@ VibeMouse 把高频语音工作流绑定到鼠标侧键：
 
 ## 快速开始（Linux）
 
+Python 版本建议：`3.10` 到 `3.12`（当前不建议 `3.13+`）。
+
 ### Ubuntu / Debian 依赖
 
 ```bash
@@ -62,6 +64,8 @@ pip install -U pip
 pip install -e .
 ```
 
+说明：`pip install -e .` 会自动安装 `torch` 与 `torchaudio`（FunASR 运行必需）。
+
 ### 运行
 
 ```bash
@@ -75,6 +79,9 @@ vibemouse
 ```bash
 bash scripts/auto-deploy.sh --preset stable
 ```
+
+如果默认 `python3` 为 `3.13+`，脚本会自动优先使用 `python3.12`。  
+非 Linux 平台建议增加参数：`--skip-systemctl`。
 
 这个命令会自动完成 `.venv` 初始化、安装 VibeMouse、生成 service/env 文件、
 启用 `systemd --user` 服务并执行 `vibemouse doctor`。
@@ -147,6 +154,7 @@ vibemouse doctor --fix
 - 配置加载是否有效
 - OpenClaw 命令是否可执行 + agent 是否存在
 - 麦克风输入设备可用性
+- 转写依赖是否可导入（含 `funasr` 依赖链）
 - Linux 输入设备权限 / 侧键能力
 - Hyprland 后侧键 Return 冲突绑定
 - `systemctl --user` 服务状态

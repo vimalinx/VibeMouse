@@ -48,7 +48,7 @@ VibeMouse 是“鼠标侧键语音工作流”工具。
 ## 4）依赖项与下载地址
 
 ### 基础环境
-- Python 3.10+：https://www.python.org/downloads/
+- Python 3.10-3.12（当前建议 3.12；3.13+ 依赖链未稳定）：https://www.python.org/downloads/
 - pip 安装文档：https://pip.pypa.io/en/stable/installation/
 
 ### 音频链路
@@ -63,6 +63,8 @@ VibeMouse 是“鼠标侧键语音工作流”工具。
 - PyGObject / AT-SPI：https://pygobject.gnome.org/
 
 ### 语音识别与模型栈
+- PyTorch：https://pypi.org/project/torch/
+- Torchaudio：https://pypi.org/project/torchaudio/
 - FunASR：https://pypi.org/project/funasr/
 - FunASR ONNX：https://pypi.org/project/funasr-onnx/
 - ONNX Runtime：https://pypi.org/project/onnxruntime/
@@ -82,7 +84,20 @@ Python 依赖版本以 `pyproject.toml` 为准。
 bash scripts/auto-deploy.sh --preset stable
 ```
 
+如果系统默认 `python3` 是 3.13+，脚本会自动尝试 `python3.12`。
+也可以手工指定解释器：
+
+```bash
+VIBEMOUSE_PYTHON_BIN=python3.12 bash scripts/auto-deploy.sh --preset stable
+```
+
 预设可选：`stable`、`fast`、`low-resource`。
+
+非 Linux（如 macOS/Windows）建议加 `--skip-systemctl`：
+
+```bash
+bash scripts/auto-deploy.sh --preset stable --skip-systemctl
+```
 
 也可以直接用 deploy 子命令：
 
@@ -113,6 +128,10 @@ openclaw agent --agent main --message "ping" --json
 ```bash
 vibemouse
 ```
+
+首次启动说明：
+- 可能会下载模型文件（约数百 MB 到约 1 GB），属于正常行为。
+- macOS 需给终端开启“辅助功能”和“输入监控”权限，否则侧键监听不可用。
 
 5. 手工验证状态矩阵
 - 空闲态后侧键 -> Enter

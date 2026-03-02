@@ -11,6 +11,7 @@ from vibemouse.config import AppConfig
 from vibemouse.doctor import (
     DoctorCheck,
     _apply_doctor_fixes,
+    _check_transcriber_dependencies,
     _ensure_user_service_active,
     _fix_hyprland_return_bind_conflict,
     _check_hyprland_return_bind_conflict,
@@ -72,7 +73,15 @@ class DoctorHelpersTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("vibemouse.doctor.Path.home", return_value=Path(tmp)):
+            with (
+                patch("vibemouse.doctor.Path.home", return_value=Path(tmp)),
+                patch("vibemouse.doctor.sys.platform", "linux"),
+                patch.dict(
+                    "os.environ",
+                    {"HYPRLAND_INSTANCE_SIGNATURE": "test"},
+                    clear=True,
+                ),
+            ):
                 check = _check_hyprland_return_bind_conflict(
                     cast(
                         AppConfig,
@@ -82,6 +91,15 @@ class DoctorHelpersTests(unittest.TestCase):
 
         self.assertEqual(check.status, "fail")
         self.assertIn("conflicting return bind", check.detail)
+
+    def test_hyprland_bind_conflict_skips_on_non_linux(self) -> None:
+        with patch("vibemouse.doctor.sys.platform", "darwin"):
+            check = _check_hyprland_return_bind_conflict(
+                cast(AppConfig, cast(object, SimpleNamespace(rear_button="x1")))
+            )
+
+        self.assertEqual(check.status, "ok")
+        self.assertIn("non-linux", check.detail)
 
     def test_audio_input_check_reports_missing_dependency(self) -> None:
         with patch(
@@ -149,6 +167,12 @@ class DoctorHelpersTests(unittest.TestCase):
 
             with (
                 patch("vibemouse.doctor.Path.home", return_value=Path(tmp)),
+                patch("vibemouse.doctor.sys.platform", "linux"),
+                patch.dict(
+                    "os.environ",
+                    {"HYPRLAND_INSTANCE_SIGNATURE": "test"},
+                    clear=True,
+                ),
                 patch("vibemouse.doctor._run_subprocess") as run_subprocess,
             ):
                 _fix_hyprland_return_bind_conflict()
@@ -167,7 +191,10 @@ class DoctorHelpersTests(unittest.TestCase):
                 return SimpleNamespace(returncode=3, stdout="inactive\n")
             return SimpleNamespace(returncode=0, stdout="")
 
-        with patch("vibemouse.doctor._run_subprocess", side_effect=fake_run):
+        with (
+            patch("vibemouse.doctor._run_subprocess", side_effect=fake_run),
+            patch("vibemouse.doctor.sys.platform", "linux"),
+        ):
             _ensure_user_service_active()
 
         self.assertEqual(
@@ -203,11 +230,13 @@ class DoctorCommandTests(unittest.TestCase):
                 "vibemouse.doctor._check_hyprland_return_bind_conflict"
             ) as bind_check,
             patch("vibemouse.doctor._check_audio_input") as audio_check,
+            patch("vibemouse.doctor._check_transcriber_dependencies") as transcriber_dep_check,
             patch("vibemouse.doctor._check_input_device_permissions") as input_check,
             patch("vibemouse.doctor._check_user_service_state") as service_check,
         ):
             bind_check.return_value = DoctorCheck("bind", "ok", "ok")
             audio_check.return_value = DoctorCheck("audio", "ok", "ok")
+            transcriber_dep_check.return_value = DoctorCheck("deps", "ok", "ok")
             input_check.return_value = DoctorCheck("input", "ok", "ok")
             service_check.return_value = DoctorCheck("service", "ok", "ok")
             rc = run_doctor()
@@ -242,6 +271,10 @@ class DoctorCommandTests(unittest.TestCase):
                 return_value=DoctorCheck("audio", "ok", "ok"),
             ),
             patch(
+                "vibemouse.doctor._check_transcriber_dependencies",
+                return_value=DoctorCheck("deps", "ok", "ok"),
+            ),
+            patch(
                 "vibemouse.doctor._check_input_device_permissions",
                 return_value=DoctorCheck("input", "ok", "ok"),
             ),
@@ -258,3 +291,20 @@ class DoctorCommandTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(apply_fixes.call_count, 1)
+
+    def test_check_transcriber_dependencies_reports_missing_module(self) -> None:
+        config = cast(
+            AppConfig,
+            cast(
+                object,
+                SimpleNamespace(transcriber_backend="funasr", device="cpu"),
+            ),
+        )
+        with patch(
+            "vibemouse.doctor.importlib.import_module",
+            side_effect=ModuleNotFoundError("funasr"),
+        ):
+            check = _check_transcriber_dependencies(config)
+
+        self.assertEqual(check.status, "fail")
+        self.assertIn("cannot import funasr", check.detail)

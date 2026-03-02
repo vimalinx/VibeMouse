@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -33,6 +34,7 @@ def run_doctor(*, apply_fixes: bool = False) -> int:
         checks.extend(_check_openclaw(config))
 
     checks.append(_check_audio_input(config))
+    checks.append(_check_transcriber_dependencies(config))
     checks.append(_check_input_device_permissions(config))
 
     checks.append(_check_hyprland_return_bind_conflict(config))
@@ -52,6 +54,11 @@ def _apply_doctor_fixes() -> None:
 
 
 def _fix_hyprland_return_bind_conflict() -> None:
+    if not _is_linux():
+        return
+    if not _is_hyprland_session():
+        return
+
     bind_path = Path.home() / ".config/hypr/UserConfigs/UserKeybinds.conf"
     if not bind_path.exists():
         return
@@ -95,6 +102,9 @@ def _fix_hyprland_return_bind_conflict() -> None:
 
 
 def _ensure_user_service_active() -> None:
+    if not _is_linux():
+        return
+
     probe = _run_subprocess(
         ["systemctl", "--user", "is-active", "vibemouse.service"],
         timeout=3.0,
@@ -346,6 +356,49 @@ def _check_audio_input(config: AppConfig | None) -> DoctorCheck:
     )
 
 
+def _check_transcriber_dependencies(config: AppConfig | None) -> DoctorCheck:
+    if config is None:
+        return DoctorCheck(
+            name="transcriber-deps",
+            status="warn",
+            detail="config unavailable; skipped transcriber dependency checks",
+        )
+
+    backend = config.transcriber_backend.strip().lower()
+    device = config.device.strip().lower()
+
+    required_imports: list[str] = []
+    if backend == "funasr":
+        required_imports = ["funasr"]
+    elif backend == "funasr_onnx":
+        required_imports = ["funasr", "funasr_onnx"]
+    else:
+        if device.startswith("npu") or device.startswith("openvino:npu"):
+            required_imports = ["funasr", "funasr_onnx"]
+        else:
+            required_imports = ["funasr"]
+
+    errors: list[str] = []
+    for module_name in required_imports:
+        try:
+            _ = importlib.import_module(module_name)
+        except Exception as error:
+            errors.append(_format_import_error(module_name, error))
+
+    if errors:
+        return DoctorCheck(
+            name="transcriber-deps",
+            status="fail",
+            detail="; ".join(errors),
+        )
+
+    return DoctorCheck(
+        name="transcriber-deps",
+        status="ok",
+        detail=f"required imports available for backend={backend or 'auto'}",
+    )
+
+
 def _check_input_device_permissions(config: AppConfig | None) -> DoctorCheck:
     if not sys.platform.startswith("linux"):
         return DoctorCheck(
@@ -510,6 +563,19 @@ def _to_float(value: object) -> float:
 
 
 def _check_hyprland_return_bind_conflict(config: AppConfig | None) -> DoctorCheck:
+    if not _is_linux():
+        return DoctorCheck(
+            name="hyprland-bind-conflict",
+            status="ok",
+            detail="non-linux platform; hyprland conflict check skipped",
+        )
+    if not _is_hyprland_session():
+        return DoctorCheck(
+            name="hyprland-bind-conflict",
+            status="ok",
+            detail="non-hyprland session; conflict check skipped",
+        )
+
     bind_path = Path.home() / ".config/hypr/UserConfigs/UserKeybinds.conf"
     if not bind_path.exists():
         return DoctorCheck(
@@ -544,6 +610,13 @@ def _check_hyprland_return_bind_conflict(config: AppConfig | None) -> DoctorChec
 
 
 def _check_user_service_state() -> DoctorCheck:
+    if not _is_linux():
+        return DoctorCheck(
+            name="user-service",
+            status="ok",
+            detail="non-linux platform; systemd user-service check skipped",
+        )
+
     probe = _run_subprocess(
         ["systemctl", "--user", "is-active", "vibemouse.service"],
         timeout=3.0,
@@ -598,6 +671,24 @@ def _parse_openclaw_command(raw: str) -> list[str] | None:
     if not parts:
         return None
     return parts
+
+
+def _is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _is_hyprland_session() -> bool:
+    desktop = os.getenv("XDG_CURRENT_DESKTOP", "")
+    if "hyprland" in desktop.lower():
+        return True
+    return bool(os.getenv("HYPRLAND_INSTANCE_SIGNATURE"))
+
+
+def _format_import_error(module_name: str, error: Exception) -> str:
+    return (
+        f"cannot import {module_name}: {error.__class__.__name__}: {error}. "
+        + "please run `pip install -e .` in project venv"
+    )
 
 
 def _print_checks(checks: list[DoctorCheck]) -> None:

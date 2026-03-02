@@ -40,6 +40,8 @@ The runtime is event-driven and split by responsibility:
 
 ## Quick Start (Linux)
 
+Recommended Python versions: `3.10` to `3.12` (currently avoid `3.13+`).
+
 ### Ubuntu / Debian packages
 
 ```bash
@@ -62,6 +64,8 @@ pip install -U pip
 pip install -e .
 ```
 
+Note: `pip install -e .` also installs `torch` and `torchaudio` required by FunASR.
+
 ### Run
 
 ```bash
@@ -75,6 +79,9 @@ vibemouse
 ```bash
 bash scripts/auto-deploy.sh --preset stable
 ```
+
+If your default `python3` is `3.13+`, the script will auto-fallback to `python3.12`.
+For non-Linux platforms, prefer `--skip-systemctl`.
 
 This command bootstraps `.venv`, installs VibeMouse, generates service/env files,
 enables `systemd --user` service, and runs `vibemouse doctor`.
@@ -147,6 +154,7 @@ Current checks include:
 - Config load validity
 - OpenClaw command resolution + agent existence
 - Microphone input availability
+- Transcriber dependency importability (including FunASR dependency chain)
 - Linux input device permissions / side-button capability
 - Hyprland rear-button Return bind conflicts
 - `systemctl --user` service activity

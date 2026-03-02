@@ -7,7 +7,7 @@ name = "vibemouse"
 version = "0.1.0"
 description = "Mouse side-button voice dictation with SenseVoice"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 license = { file = "LICENSE" }
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
@@ -19,11 +19,13 @@ dependencies = [
   "sounddevice>=0.4.6",
   "soundfile>=0.12.1",
   "pynput>=1.7.7",
-  "evdev>=1.7.1",
-  "PyGObject>=3.46.0",
+  "evdev>=1.7.1; sys_platform == 'linux'",
+  "PyGObject>=3.46.0; sys_platform == 'linux'",
   "pyperclip>=1.9.0",
   "funasr>=1.2.6",
   "funasr-onnx>=0.4.1",
+  "torch>=2.2.0",
+  "torchaudio>=2.2.0",
   "onnxruntime>=1.24.0",
   "openvino>=2026.0.0",
   "modelscope>=1.18.0",

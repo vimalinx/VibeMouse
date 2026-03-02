@@ -50,7 +50,7 @@ Rule: add platform-specific behavior here first; avoid spreading platform logic 
 ## 4) Dependencies and Download Sources
 
 ### Required foundations
-- Python 3.10+: https://www.python.org/downloads/
+- Python 3.10-3.12 (currently prefer 3.12; 3.13+ dependency chain is not stable yet): https://www.python.org/downloads/
 - pip: https://pip.pypa.io/en/stable/installation/
 
 ### Runtime and audio
@@ -65,6 +65,8 @@ Rule: add platform-specific behavior here first; avoid spreading platform logic 
 - PyGObject / AT-SPI: https://pygobject.gnome.org/
 
 ### ASR and model stack
+- PyTorch: https://pypi.org/project/torch/
+- Torchaudio: https://pypi.org/project/torchaudio/
 - FunASR: https://pypi.org/project/funasr/
 - FunASR ONNX: https://pypi.org/project/funasr-onnx/
 - ONNX Runtime: https://pypi.org/project/onnxruntime/
@@ -84,7 +86,20 @@ Fastest path (recommended):
 bash scripts/auto-deploy.sh --preset stable
 ```
 
+If the default `python3` is 3.13+, the script will auto-try `python3.12`.
+You can also force interpreter selection:
+
+```bash
+VIBEMOUSE_PYTHON_BIN=python3.12 bash scripts/auto-deploy.sh --preset stable
+```
+
 Preset choices: `stable`, `fast`, `low-resource`.
+
+For non-Linux platforms (macOS/Windows), prefer:
+
+```bash
+bash scripts/auto-deploy.sh --preset stable --skip-systemctl
+```
 
 Direct command alternative:
 
@@ -115,6 +130,10 @@ openclaw agent --agent main --message "ping" --json
 ```bash
 vibemouse
 ```
+
+First-run notes:
+- Initial model download may be hundreds of MB to around 1 GB.
+- On macOS, grant Accessibility and Input Monitoring permissions to your terminal app.
 
 5. Validate behavior matrix manually
 - idle + rear -> Enter

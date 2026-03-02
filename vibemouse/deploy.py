@@ -209,10 +209,6 @@ def _resolve_exec_start(raw_exec_start: str) -> str:
     if cleaned:
         return cleaned
 
-    vibemouse_bin = shutil.which("vibemouse")
-    if vibemouse_bin:
-        return f"{vibemouse_bin} run"
-
     python_bin = sys.executable
     return f"{python_bin} -m vibemouse.main run"
 

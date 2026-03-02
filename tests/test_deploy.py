@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from vibemouse.deploy import (
+    _resolve_exec_start,
     build_deploy_env,
     render_env_file,
     render_service_file,
@@ -15,6 +16,12 @@ from vibemouse.deploy import (
 
 
 class DeployHelpersTests(unittest.TestCase):
+    def test_resolve_exec_start_defaults_to_current_python_module_invocation(self) -> None:
+        with patch("vibemouse.deploy.sys.executable", "/tmp/venv/bin/python"):
+            exec_start = _resolve_exec_start("")
+
+        self.assertEqual(exec_start, "/tmp/venv/bin/python -m vibemouse.main run")
+
     def test_build_deploy_env_applies_preset_and_override(self) -> None:
         env_map = build_deploy_env(
             preset="fast",
