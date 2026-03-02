@@ -126,7 +126,7 @@ vibemouse
 | `VIBEMOUSE_ENTER_MODE` | `enter` | 后侧键提交模式：`enter`、`ctrl_enter`、`shift_enter`、`none` |
 | `VIBEMOUSE_AUTO_PASTE` | `false` | 回退到剪贴板时自动发送 `Ctrl+V` 粘贴 |
 | `VIBEMOUSE_OPENCLAW_COMMAND` | `openclaw` | OpenClaw CLI 命令前缀，例如 `openclaw --profile prod` |
-| `VIBEMOUSE_OPENCLAW_AGENT` | `main` | 目标 agent，运行时追加 `--agent` |
+| `VIBEMOUSE_OPENCLAW_AGENT` | `main` | 目标 agent，运行时追加 `--agent`（部署时可改成你自己的本地 AI 助手 ID） |
 | `VIBEMOUSE_OPENCLAW_TIMEOUT_S` | `20.0` | 执行 `openclaw agent` 的超时时间（秒） |
 | `VIBEMOUSE_TRUST_REMOTE_CODE` | `false` | 仅在可信模型明确要求远端代码时设为 `true` |
 | `VIBEMOUSE_PREWARM_ON_START` | `true` | 启动时预热 ASR 后端，缩短首次识别等待时间 |
@@ -201,6 +201,9 @@ export VIBEMOUSE_OPENCLAW_COMMAND="openclaw --profile prod"
 export VIBEMOUSE_OPENCLAW_AGENT="ops"
 systemctl --user restart vibemouse.service
 ```
+
+部署提示：如果你本地有多个 AI 助手，可以把 `VIBEMOUSE_OPENCLAW_AGENT`
+改成你自己的助手 ID（例如 `main`、`ops` 或自定义 agent 名称）。
 
 ### 鼠标手势没有触发动作
 

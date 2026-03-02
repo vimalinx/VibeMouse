@@ -128,7 +128,7 @@ Environment variables:
 | `VIBEMOUSE_ENTER_MODE` | `enter` | Rear button enter mode: `enter`, `ctrl_enter`, `shift_enter`, `none` |
 | `VIBEMOUSE_AUTO_PASTE` | `false` | Auto paste with Ctrl+V after copying fallback text |
 | `VIBEMOUSE_OPENCLAW_COMMAND` | `openclaw` | OpenClaw CLI command prefix. Example: `openclaw --profile prod` |
-| `VIBEMOUSE_OPENCLAW_AGENT` | `main` | Target agent name passed as `--agent` |
+| `VIBEMOUSE_OPENCLAW_AGENT` | `main` | Target agent name passed as `--agent` (set this to your own local assistant id when deploying) |
 | `VIBEMOUSE_OPENCLAW_TIMEOUT_S` | `20.0` | Timeout in seconds for `openclaw agent` command |
 | `VIBEMOUSE_TRUST_REMOTE_CODE` | `false` | Set `true` only for trusted models that require remote code |
 | `VIBEMOUSE_PREWARM_ON_START` | `true` | Preload ASR backend at startup to reduce first-transcription latency |
@@ -203,6 +203,9 @@ export VIBEMOUSE_OPENCLAW_COMMAND="openclaw --profile prod"
 export VIBEMOUSE_OPENCLAW_AGENT="ops"
 systemctl --user restart vibemouse.service
 ```
+
+Deployment tip: if you run multiple local assistants, point `VIBEMOUSE_OPENCLAW_AGENT`
+to your own assistant id (for example `main`, `ops`, or your custom agent name).
 
 ### Mouse gestures do not trigger actions
 
