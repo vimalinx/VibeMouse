@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
@@ -10,6 +11,8 @@ from uuid import uuid4
 
 import numpy as np
 from numpy.typing import NDArray
+
+_LOG = logging.getLogger(__name__)
 
 
 AudioFrame = NDArray[np.float32]
@@ -105,14 +108,22 @@ class AudioRecorder:
                     callback=self._callback,
                 )
                 samplerate = fallback_rate
-                print(
-                    "Audio samplerate fallback applied: "
-                    + f"{self._sample_rate} -> {fallback_rate} ({first_error})"
+                _LOG.warning(
+                    "Audio samplerate fallback applied: %s -> %s (%s)",
+                    self._sample_rate,
+                    fallback_rate,
+                    first_error,
                 )
             stream.start()
             self._stream = stream
             self._recording = True
             self._active_sample_rate = samplerate
+            _LOG.info(
+                "Audio recording stream started: device=%s sample_rate=%s channels=%s",
+                device,
+                samplerate,
+                self._channels,
+            )
 
     def stop_and_save(self) -> AudioRecording | None:
         with self._lock:
@@ -125,6 +136,7 @@ class AudioRecorder:
         if stream is not None:
             stream.stop()
             stream.close()
+            _LOG.info("Audio recording stream stopped")
 
         with self._lock:
             if not self._frames:
@@ -142,6 +154,7 @@ class AudioRecorder:
                 f"Failed to write recording to {out_path}: {error}"
             ) from error
         duration = float(len(audio) / self._active_sample_rate)
+        _LOG.info("Audio recording saved: path=%s duration_s=%.2f", out_path, duration)
         return AudioRecording(path=out_path, duration_s=duration)
 
     def cancel(self) -> None:
@@ -213,7 +226,7 @@ class AudioRecorder:
             if index < 0 or index >= len(devices):
                 return ""
             item = devices[index]
-            if not isinstance(item, dict):
+            if not isinstance(item, Mapping):
                 return ""
             raw = item.get("name", "")
             return raw if isinstance(raw, str) else ""
@@ -237,7 +250,7 @@ class AudioRecorder:
             "vdownmix",
         }
         for idx, entry in enumerate(devices):
-            if not isinstance(entry, dict):
+            if not isinstance(entry, Mapping):
                 continue
             max_inputs = entry.get("max_input_channels", 0)
             if not isinstance(max_inputs, int | float) or max_inputs <= 0:
@@ -269,7 +282,7 @@ class AudioRecorder:
 
         if isinstance(device, int) and 0 <= device < len(devices):
             entry = devices[device]
-            if isinstance(entry, dict):
+            if isinstance(entry, Mapping):
                 raw = entry.get("default_samplerate")
                 if isinstance(raw, int | float) and raw > 0:
                     return int(raw)

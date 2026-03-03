@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import threading
 from pathlib import Path
@@ -15,6 +16,7 @@ from vibemouse.transcriber import SenseVoiceTranscriber
 
 
 TranscriptionTarget = Literal["default", "openclaw"]
+_LOG = logging.getLogger(__name__)
 
 
 class VoiceMouseApp:
@@ -61,7 +63,7 @@ class VoiceMouseApp:
     def run(self) -> None:
         self._listener.start()
         self._set_recording_status(False)
-        print(
+        _LOG.info(
             "VibeMouse ready. "
             + f"Model={self._config.model_name}, preferred_device={self._config.device}, "
             + f"backend={self._config.transcriber_backend}, auto_paste={self._config.auto_paste}, "
@@ -96,7 +98,7 @@ class VoiceMouseApp:
             if worker.is_alive():
                 still_running.append(worker)
         if still_running:
-            print(
+            _LOG.warning(
                 f"Shutdown warning: {len(still_running)} transcription worker(s) are still running"
             )
 
@@ -105,16 +107,16 @@ class VoiceMouseApp:
             try:
                 self._recorder.start()
                 self._set_recording_status(True)
-                print("Recording started")
+                _LOG.info("Recording started")
             except Exception as error:
                 self._set_recording_status(False)
-                print(f"Failed to start recording: {error}")
+                _LOG.exception("Failed to start recording: %s", error)
             return
 
         try:
             recording = self._stop_recording()
         except Exception as error:
-            print(f"Failed to stop recording: {error}")
+            _LOG.exception("Failed to stop recording: %s", error)
             return
 
         if recording is None:
@@ -127,33 +129,35 @@ class VoiceMouseApp:
             try:
                 recording = self._stop_recording()
             except Exception as error:
-                print(f"Failed to stop recording from rear button: {error}")
+                _LOG.exception("Failed to stop recording from rear button: %s", error)
                 return
 
             if recording is None:
                 return
 
-            print("Recording stopped by rear button, sending transcript to OpenClaw")
+            _LOG.info(
+                "Recording stopped by rear button, sending transcript to OpenClaw"
+            )
             self._start_transcription_worker(recording, output_target="openclaw")
             return
 
         try:
             self._output.send_enter(mode=self._config.enter_mode)
             if self._config.enter_mode == "none":
-                print("Enter key handling disabled (enter_mode=none)")
+                _LOG.info("Enter key handling disabled (enter_mode=none)")
             else:
-                print("Enter key sent")
+                _LOG.info("Enter key sent")
         except Exception as error:
-            print(f"Failed to send Enter: {error}")
+            _LOG.exception("Failed to send Enter: %s", error)
 
     def _on_gesture(self, direction: str) -> None:
         action = self._resolve_gesture_action(direction)
         if action == "noop":
-            print(f"Gesture '{direction}' recognized with no action configured")
+            _LOG.info("Gesture '%s' recognized with no action configured", direction)
             return
 
         if action == "record_toggle":
-            print(f"Gesture '{direction}' -> toggle recording")
+            _LOG.info("Gesture '%s' -> toggle recording", direction)
             self._on_front_press()
             return
 
@@ -163,26 +167,28 @@ class VoiceMouseApp:
                 mode = "enter"
             try:
                 self._output.send_enter(mode=mode)
-                print(f"Gesture '{direction}' -> send enter ({mode})")
+                _LOG.info("Gesture '%s' -> send enter (%s)", direction, mode)
             except Exception as error:
-                print(f"Gesture '{direction}' failed to send enter: {error}")
+                _LOG.exception(
+                    "Gesture '%s' failed to send enter: %s", direction, error
+                )
             return
 
         if action == "workspace_left":
             if self._switch_workspace("left"):
-                print(f"Gesture '{direction}' -> switch workspace left")
+                _LOG.info("Gesture '%s' -> switch workspace left", direction)
             else:
-                print(f"Gesture '{direction}' failed to switch workspace left")
+                _LOG.warning("Gesture '%s' failed to switch workspace left", direction)
             return
 
         if action == "workspace_right":
             if self._switch_workspace("right"):
-                print(f"Gesture '{direction}' -> switch workspace right")
+                _LOG.info("Gesture '%s' -> switch workspace right", direction)
             else:
-                print(f"Gesture '{direction}' failed to switch workspace right")
+                _LOG.warning("Gesture '%s' failed to switch workspace right", direction)
             return
 
-        print(f"Gesture '{direction}' mapped to unknown action '{action}'")
+        _LOG.warning("Gesture '%s' mapped to unknown action '%s'", direction, action)
 
     def _resolve_gesture_action(self, direction: str) -> str:
         mapping = {
@@ -228,7 +234,7 @@ class VoiceMouseApp:
 
         self._set_recording_status(False)
         if recording is None:
-            print("Recording was empty and has been discarded")
+            _LOG.info("Recording was empty and has been discarded")
             return None
         return recording
 
@@ -254,12 +260,14 @@ class VoiceMouseApp:
     ) -> None:
         current = threading.current_thread()
         try:
-            print(f"Recording stopped ({recording.duration_s:.1f}s), transcribing...")
+            _LOG.info(
+                "Recording stopped (%.1fs), transcribing...", recording.duration_s
+            )
             with self._transcribe_lock:
                 text = self._transcriber.transcribe(recording.path)
 
             if not text:
-                print("No speech recognized")
+                _LOG.info("No speech recognized")
                 return
 
             if output_target == "openclaw":
@@ -278,33 +286,50 @@ class VoiceMouseApp:
 
             if output_target == "openclaw":
                 if route == "openclaw":
-                    print(
-                        f"Transcribed with {backend} on {device}, sent to OpenClaw ({dispatch_reason})"
+                    _LOG.info(
+                        "Transcribed with %s on %s, sent to OpenClaw (%s)",
+                        backend,
+                        device,
+                        dispatch_reason,
                     )
                 elif route == "clipboard":
-                    print(
-                        f"Transcribed with {backend} on {device}, OpenClaw unavailable so copied to clipboard ({dispatch_reason})"
+                    _LOG.warning(
+                        "Transcribed with %s on %s, OpenClaw unavailable so copied to clipboard (%s)",
+                        backend,
+                        device,
+                        dispatch_reason,
                     )
                 else:
-                    print(
-                        f"Transcribed with {backend} on {device}, but OpenClaw output was empty ({dispatch_reason})"
+                    _LOG.warning(
+                        "Transcribed with %s on %s, but OpenClaw output was empty (%s)",
+                        backend,
+                        device,
+                        dispatch_reason,
                     )
                 return
 
             if route == "typed":
-                print(
-                    f"Transcribed with {backend} on {device}, typed into focused input"
+                _LOG.info(
+                    "Transcribed with %s on %s, typed into focused input",
+                    backend,
+                    device,
                 )
             elif route == "pasted":
-                print(
-                    f"Transcribed with {backend} on {device}, pasted via system shortcut"
+                _LOG.info(
+                    "Transcribed with %s on %s, pasted via system shortcut",
+                    backend,
+                    device,
                 )
             elif route == "clipboard":
-                print(f"Transcribed with {backend} on {device}, copied to clipboard")
+                _LOG.info(
+                    "Transcribed with %s on %s, copied to clipboard", backend, device
+                )
             else:
-                print(f"Transcribed with {backend} on {device}, but output was empty")
+                _LOG.warning(
+                    "Transcribed with %s on %s, but output was empty", backend, device
+                )
         except Exception as error:
-            print(f"Transcription failed: {error}")
+            _LOG.exception("Transcription failed: %s", error)
         finally:
             self._safe_unlink(recording.path)
             with self._workers_lock:
@@ -314,7 +339,7 @@ class VoiceMouseApp:
         try:
             path.unlink(missing_ok=True)
         except Exception as error:
-            print(f"Failed to remove temp audio file {path}: {error}")
+            _LOG.warning("Failed to remove temp audio file %s: %s", path, error)
 
     def _maybe_prewarm_transcriber(self) -> None:
         if not self._config.prewarm_on_start or self._prewarm_started:
@@ -330,15 +355,15 @@ class VoiceMouseApp:
 
     def _prewarm_transcriber(self, delay_s: float = 0.0) -> None:
         if delay_s > 0:
-            print(f"Transcriber prewarm scheduled in {delay_s:.1f}s")
+            _LOG.info("Transcriber prewarm scheduled in %.1fs", delay_s)
             if self._stop_event.wait(timeout=delay_s):
                 return
 
         try:
             self._transcriber.prewarm()
-            print("Transcriber prewarm complete")
+            _LOG.info("Transcriber prewarm complete")
         except Exception as error:
-            print(f"Transcriber prewarm skipped: {error}")
+            _LOG.warning("Transcriber prewarm skipped: %s", error)
 
     def _set_recording_status(self, is_recording: bool) -> None:
         payload = {

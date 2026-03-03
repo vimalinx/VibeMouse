@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import subprocess
 import threading
 import time
@@ -13,6 +14,7 @@ from vibemouse.system_integration import SystemIntegration, create_system_integr
 
 ButtonCallback = Callable[[], None]
 GestureCallback = Callable[[str], None]
+_LOG = logging.getLogger(__name__)
 
 
 class SideButtonListener:
@@ -94,7 +96,7 @@ class SideButtonListener:
                         + f"(evdev: {evdev_error}; pynput: {pynput_error}). Retrying..."
                     )
                     if summary != last_error_summary:
-                        print(summary)
+                        _LOG.warning(summary)
                         last_error_summary = summary
                     if self._stop.wait(1.0):
                         return
@@ -157,6 +159,9 @@ class SideButtonListener:
 
         if not devices:
             raise RuntimeError("No input device with side-button capability found")
+        _LOG.info(
+            "Mouse listener using evdev with %d candidate device(s)", len(devices)
+        )
 
         try:
             fd_map: dict[int, _EvdevDevice] = {dev.fd: dev for dev in devices}
@@ -190,6 +195,11 @@ class SideButtonListener:
                                 continue
 
                             if event.value == 1:
+                                _LOG.debug(
+                                    "Mouse click detected: label=%s code=%s",
+                                    button_label,
+                                    event.code,
+                                )
                                 self._dispatch_click(button_label)
                             continue
 
@@ -253,6 +263,7 @@ class SideButtonListener:
             self._accumulate_gesture_position(x, y)
 
         listener = listener_ctor(on_click=on_click, on_move=on_move)
+        _LOG.info("Mouse listener using pynput fallback backend")
         listener.start()
         try:
             while not self._stop.is_set():
@@ -327,6 +338,13 @@ class SideButtonListener:
         self._release_gesture_grab()
 
         direction = self._classify_gesture(dx, dy, self._gesture_threshold_px)
+        _LOG.debug(
+            "Gesture capture finished: button=%s dx=%s dy=%s direction=%s",
+            button_label,
+            dx,
+            dy,
+            direction,
+        )
         if direction is None:
             self._dispatch_click(button_label)
             return

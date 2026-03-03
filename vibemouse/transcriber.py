@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import re
 from pathlib import Path
 from threading import Lock
 from typing import Protocol, cast
 
 from vibemouse.config import AppConfig
+
+_LOG = logging.getLogger(__name__)
 
 
 class SenseVoiceTranscriber:
@@ -36,7 +39,9 @@ class SenseVoiceTranscriber:
 
             backend = self._config.transcriber_backend
             if backend in {"auto", "funasr"}:
-                print(f"Backend {backend!r} is deprecated; using 'funasr_onnx' instead")
+                _LOG.warning(
+                    "Backend %r is deprecated; using 'funasr_onnx' instead", backend
+                )
                 backend = "funasr_onnx"
 
             if backend != "funasr_onnx":
@@ -109,6 +114,11 @@ class _FunASRONNXBackend:
                 self._model = model
                 self._postprocess = postprocess
                 self.device_in_use = self._resolve_device_label(self._config.device)
+                _LOG.info(
+                    "Loaded funasr_onnx model: device_in_use=%s model=%s",
+                    self.device_in_use,
+                    requested_path,
+                )
                 return
             except Exception as primary_error:
                 if not self._config.fallback_to_cpu:
@@ -132,6 +142,9 @@ class _FunASRONNXBackend:
             self._model = model
             self._postprocess = postprocess
             self.device_in_use = "cpu"
+            _LOG.warning(
+                "Loaded funasr_onnx model with CPU fallback after device load failure"
+            )
 
     def _resolve_onnx_model_dir(self) -> Path:
         raw_model = self._config.model_name

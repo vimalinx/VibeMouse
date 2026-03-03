@@ -110,6 +110,7 @@ class AppConfig:
     front_button: str
     rear_button: str
     temp_dir: Path
+    log_level: str
 
 
 def load_config() -> AppConfig:
@@ -242,4 +243,5 @@ def load_config() -> AppConfig:
         front_button=front_button,
         rear_button=rear_button,
         temp_dir=temp_dir,
+        log_level=os.getenv("VIBEMOUSE_LOG_LEVEL", "INFO").strip().upper() or "INFO",
     )
