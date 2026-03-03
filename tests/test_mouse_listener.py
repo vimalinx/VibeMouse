@@ -237,3 +237,68 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             run_evdev()
 
         self.assertEqual(callbacks, ["front", "rear"])
+
+    def test_evdev_read_oserror_raises_runtimeerror_for_hotplug(self) -> None:
+        class _HotplugErrorDevice:
+            def __init__(self) -> None:
+                self.fd = 55
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {1: [272, 273, 275, 276]}
+
+            def read(self) -> list[object]:
+                raise OSError("No such device")
+
+            def close(self) -> None:
+                return
+
+        fake_device = _HotplugErrorDevice()
+
+        fake_ecodes = type(
+            "_Ecodes",
+            (),
+            {
+                "BTN_SIDE": 275,
+                "BTN_EXTRA": 276,
+                "BTN_BACK": 278,
+                "BTN_FORWARD": 277,
+                "BTN_LEFT": 272,
+                "BTN_RIGHT": 273,
+                "EV_KEY": 1,
+                "EV_REL": 2,
+                "REL_X": 0,
+                "REL_Y": 1,
+            },
+        )
+        fake_module = type(
+            "_EvdevModule",
+            (),
+            {
+                "InputDevice": lambda _path: fake_device,
+                "ecodes": fake_ecodes,
+                "list_devices": lambda: ["/dev/input/event-hotplug"],
+            },
+        )
+
+        listener = SideButtonListener(
+            on_front_press=lambda: None,
+            on_rear_press=lambda: None,
+            front_button="x1",
+            rear_button="x2",
+        )
+
+        def _import_module(name: str):
+            if name == "evdev":
+                return fake_module
+            return _real_import_module(name)
+
+        with (
+            patch(
+                "vibemouse.mouse_listener.importlib.import_module",
+                side_effect=_import_module,
+            ),
+            patch("select.select", return_value=([55], [], [])),
+        ):
+            run_evdev = cast(Callable[[], None], getattr(listener, "_run_evdev"))
+            with self.assertRaisesRegex(RuntimeError, "hotplug"):
+                run_evdev()

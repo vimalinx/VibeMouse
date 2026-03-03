@@ -169,7 +169,13 @@ class SideButtonListener:
                 ready, _, _ = select.select(list(fd_map.keys()), [], [], 0.2)
                 for fd in ready:
                     dev = fd_map[fd]
-                    for event in dev.read():
+                    try:
+                        events = dev.read()
+                    except OSError as error:
+                        raise RuntimeError(
+                            f"evdev device read failed (likely unplug/hotplug): {error}"
+                        ) from error
+                    for event in events:
                         if event.type == ecodes.EV_KEY:
                             button_label: str | None = None
                             if event.code in front_codes:
