@@ -1,0 +1,12 @@
+{
+  "name": "openclaw-stt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw local STT plugin",
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+funasr
+numpy
+sounddevice
+soundfile
+torch
+torchaudio

@@ -1,0 +1,27 @@
+{
+  "id": "openclaw-stt",
+  "name": "OpenClaw STT",
+  "description": "Local speech-to-text tool using SenseVoice via Python.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "pythonBin": { "type": "string" },
+      "scriptPath": { "type": "string" },
+      "defaultModel": { "type": "string" },
+      "defaultDevice": { "type": "string" },
+      "defaultLanguage": { "type": "string" },
+      "defaultUseItn": { "type": "boolean" },
+      "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 300000 }
+    }
+  },
+  "uiHints": {
+    "pythonBin": { "label": "Python Bin" },
+    "scriptPath": { "label": "STT Script Path" },
+    "defaultModel": { "label": "Default Model" },
+    "defaultDevice": { "label": "Default Device" },
+    "defaultLanguage": { "label": "Default Language" },
+    "defaultUseItn": { "label": "Use ITN by Default" },
+    "timeoutMs": { "label": "Timeout (ms)" }
+  }
+}
