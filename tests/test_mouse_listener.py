@@ -61,6 +61,18 @@ class SideButtonListenerGestureTests(unittest.TestCase):
 
         self.assertIsNotNone(listener)
 
+    def test_constructor_clamps_rescan_interval_to_minimum(self) -> None:
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            rescan_interval_s=0.01,
+        )
+
+        rescan_interval = cast(float, getattr(listener, "_rescan_interval_s"))
+        self.assertGreaterEqual(rescan_interval, 0.2)
+
     def test_dispatch_gesture_calls_callback_when_present(self) -> None:
         seen: list[str] = []
 
@@ -153,6 +165,44 @@ class SideButtonListenerGestureTests(unittest.TestCase):
 
         self.assertEqual(restore_mock.call_count, 0)
 
+    def test_right_trigger_does_not_grab_source_device(self) -> None:
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="right",
+            gesture_freeze_pointer=True,
+        )
+
+        fake_device = _GrabDeviceStub()
+        start_capture = cast(
+            Callable[..., None], getattr(listener, "_start_gesture_capture")
+        )
+        start_capture(source_device=fake_device, button_label="right")
+
+        self.assertEqual(fake_device.grab_calls, 0)
+
+    def test_non_right_trigger_can_grab_source_device(self) -> None:
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="rear",
+            gesture_freeze_pointer=True,
+        )
+
+        fake_device = _GrabDeviceStub()
+        start_capture = cast(
+            Callable[..., None], getattr(listener, "_start_gesture_capture")
+        )
+        start_capture(source_device=fake_device, button_label="rear")
+
+        self.assertEqual(fake_device.grab_calls, 1)
+
     def test_back_forward_aliases_match_x1_x2(self) -> None:
         class _FakeEvent:
             def __init__(self, event_type: int, code: int, value: int) -> None:
@@ -238,7 +288,7 @@ class SideButtonListenerGestureTests(unittest.TestCase):
 
         self.assertEqual(callbacks, ["front", "rear"])
 
-    def test_evdev_read_oserror_raises_runtimeerror_for_hotplug(self) -> None:
+    def test_evdev_read_oserror_returns_for_hotplug(self) -> None:
         class _HotplugErrorDevice:
             def __init__(self) -> None:
                 self.fd = 55
@@ -300,5 +350,15 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             patch("select.select", return_value=([55], [], [])),
         ):
             run_evdev = cast(Callable[[], None], getattr(listener, "_run_evdev"))
-            with self.assertRaisesRegex(RuntimeError, "hotplug"):
-                run_evdev()
+            run_evdev()
+
+
+class _GrabDeviceStub:
+    def __init__(self) -> None:
+        self.grab_calls = 0
+
+    def grab(self) -> None:
+        self.grab_calls += 1
+
+    def ungrab(self) -> None:
+        return

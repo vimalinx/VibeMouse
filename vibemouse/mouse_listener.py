@@ -32,6 +32,7 @@ class SideButtonListener:
         gesture_freeze_pointer: bool = True,
         gesture_restore_cursor: bool = True,
         system_integration: SystemIntegration | None = None,
+        rescan_interval_s: float = 2.0,
     ) -> None:
         if gesture_trigger_button not in {"front", "rear", "right"}:
             raise ValueError(
@@ -48,6 +49,7 @@ class SideButtonListener:
         self._gesture_threshold_px: int = max(1, gesture_threshold_px)
         self._gesture_freeze_pointer: bool = gesture_freeze_pointer
         self._gesture_restore_cursor: bool = gesture_restore_cursor
+        self._rescan_interval_s: float = max(0.2, rescan_interval_s)
         self._system_integration: SystemIntegration = (
             system_integration
             if system_integration is not None
@@ -83,23 +85,26 @@ class SideButtonListener:
     def _run(self) -> None:
         last_error_summary: str | None = None
         while not self._stop.is_set():
+            evdev_error: Exception | None = None
             try:
                 self._run_evdev()
-                return
-            except Exception as evdev_error:
-                try:
-                    self._run_pynput()
+                continue
+            except Exception as error:
+                evdev_error = error
+
+            try:
+                self._run_pynput(timeout_s=self._rescan_interval_s)
+                continue
+            except Exception as pynput_error:
+                summary = (
+                    "Mouse listener backends unavailable "
+                    + f"(evdev: {evdev_error}; pynput: {pynput_error}). Retrying..."
+                )
+                if summary != last_error_summary:
+                    _LOG.warning(summary)
+                    last_error_summary = summary
+                if self._stop.wait(1.0):
                     return
-                except Exception as pynput_error:
-                    summary = (
-                        "Mouse listener backends unavailable "
-                        + f"(evdev: {evdev_error}; pynput: {pynput_error}). Retrying..."
-                    )
-                    if summary != last_error_summary:
-                        _LOG.warning(summary)
-                        last_error_summary = summary
-                    if self._stop.wait(1.0):
-                        return
 
     def _run_evdev(self) -> None:
         import select
@@ -165,16 +170,25 @@ class SideButtonListener:
 
         try:
             fd_map: dict[int, _EvdevDevice] = {dev.fd: dev for dev in devices}
+            next_rescan_at = time.monotonic() + self._rescan_interval_s
             while not self._stop.is_set():
-                ready, _, _ = select.select(list(fd_map.keys()), [], [], 0.2)
+                if not fd_map:
+                    return
+                now = time.monotonic()
+                if now >= next_rescan_at:
+                    return
+
+                timeout_s = min(0.2, max(0.0, next_rescan_at - now))
+                try:
+                    ready, _, _ = select.select(list(fd_map.keys()), [], [], timeout_s)
+                except (OSError, ValueError):
+                    return
                 for fd in ready:
                     dev = fd_map[fd]
                     try:
                         events = dev.read()
-                    except OSError as error:
-                        raise RuntimeError(
-                            f"evdev device read failed (likely unplug/hotplug): {error}"
-                        ) from error
+                    except OSError:
+                        return
                     for event in events:
                         if event.type == ecodes.EV_KEY:
                             button_label: str | None = None
@@ -195,7 +209,10 @@ class SideButtonListener:
                                 and self._is_gesture_trigger_button(button_label)
                             ):
                                 if event.value == 1:
-                                    self._start_gesture_capture(source_device=dev)
+                                    self._start_gesture_capture(
+                                        source_device=dev,
+                                        button_label=button_label,
+                                    )
                                 elif event.value == 0:
                                     self._finish_gesture_capture(button_label)
                                 continue
@@ -223,7 +240,7 @@ class SideButtonListener:
             for dev in devices:
                 dev.close()
 
-    def _run_pynput(self) -> None:
+    def _run_pynput(self, *, timeout_s: float | None = None) -> None:
         try:
             mouse_module = importlib.import_module("pynput.mouse")
         except Exception as error:
@@ -271,8 +288,13 @@ class SideButtonListener:
         listener = listener_ctor(on_click=on_click, on_move=on_move)
         _LOG.info("Mouse listener using pynput fallback backend")
         listener.start()
+        deadline: float | None = None
+        if timeout_s is not None:
+            deadline = time.monotonic() + max(0.2, timeout_s)
         try:
             while not self._stop.is_set():
+                if deadline is not None and time.monotonic() >= deadline:
+                    return
                 time.sleep(0.2)
         finally:
             listener.stop()
@@ -293,6 +315,7 @@ class SideButtonListener:
         *,
         initial_position: tuple[int, int] | None = None,
         source_device: _EvdevDevice | None = None,
+        button_label: str | None = None,
     ) -> None:
         should_grab = False
         with self._gesture_lock:
@@ -304,7 +327,11 @@ class SideButtonListener:
                 self._gesture_anchor_cursor = self._read_cursor_position()
             else:
                 self._gesture_anchor_cursor = None
-            should_grab = self._gesture_freeze_pointer and source_device is not None
+            should_grab = (
+                self._gesture_freeze_pointer
+                and source_device is not None
+                and button_label != "right"
+            )
 
         if should_grab and source_device is not None:
             self._try_grab_device(source_device)
