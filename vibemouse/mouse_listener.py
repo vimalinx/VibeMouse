@@ -197,7 +197,7 @@ class SideButtonListener:
                     return
                 now = time.monotonic()
                 if now >= next_rescan_at:
-                    next_rescan_at = now + self._rescan_interval_s
+                    return
 
                 timeout_candidates = [0.2, max(0.0, next_rescan_at - now)]
                 button_deadline = self._button_grab_deadline_monotonic
