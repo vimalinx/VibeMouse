@@ -79,6 +79,7 @@ class AppConfig:
     dtype: str
     transcriber_backend: str
     model_name: str
+    log_level: str
     device: str
     language: str
     use_itn: bool
@@ -109,6 +110,7 @@ class AppConfig:
     openclaw_retries: int
     front_button: str
     rear_button: str
+    record_hotkey_keycodes: tuple[int, ...]
     temp_dir: Path
 
 
@@ -135,6 +137,26 @@ def load_config() -> AppConfig:
     )
     front_button = _read_button("VIBEMOUSE_FRONT_BUTTON", "x1")
     rear_button = _read_button("VIBEMOUSE_REAR_BUTTON", "x2")
+    record_hotkey_keycodes = tuple(
+        sorted(
+            {
+                _require_non_negative(
+                    "VIBEMOUSE_RECORD_HOTKEY_CODE_1",
+                    _read_int("VIBEMOUSE_RECORD_HOTKEY_CODE_1", 42),
+                ),
+                _require_non_negative(
+                    "VIBEMOUSE_RECORD_HOTKEY_CODE_2",
+                    _read_int("VIBEMOUSE_RECORD_HOTKEY_CODE_2", 125),
+                ),
+                _require_non_negative(
+                    "VIBEMOUSE_RECORD_HOTKEY_CODE_3",
+                    _read_int("VIBEMOUSE_RECORD_HOTKEY_CODE_3", 193),
+                ),
+            }
+        )
+    )
+    if len(record_hotkey_keycodes) != 3:
+        raise ValueError("VIBEMOUSE_RECORD_HOTKEY_CODE_1/2/3 must be distinct")
     if front_button == rear_button:
         raise ValueError("VIBEMOUSE_FRONT_BUTTON and VIBEMOUSE_REAR_BUTTON must differ")
     button_debounce_ms = _require_non_negative(
@@ -211,6 +233,11 @@ def load_config() -> AppConfig:
         .strip()
         .lower(),
         model_name=os.getenv("VIBEMOUSE_MODEL", "iic/SenseVoiceSmall"),
+        log_level=_read_choice(
+            "VIBEMOUSE_LOG_LEVEL",
+            "info",
+            {"debug", "info", "warning", "error", "critical"},
+        ).upper(),
         device=os.getenv("VIBEMOUSE_DEVICE", "cpu"),
         language=os.getenv("VIBEMOUSE_LANGUAGE", "auto"),
         use_itn=_read_bool("VIBEMOUSE_USE_ITN", True),
@@ -241,5 +268,6 @@ def load_config() -> AppConfig:
         openclaw_retries=openclaw_retries,
         front_button=front_button,
         rear_button=rear_button,
+        record_hotkey_keycodes=record_hotkey_keycodes,
         temp_dir=temp_dir,
     )

@@ -297,9 +297,54 @@ class SideButtonListenerGestureTests(unittest.TestCase):
         )
 
         begin(source_device=fake_device, button_label="rear")
-        setattr(listener, "_button_grab_timeout_s", 0.0)
+        setattr(listener, "_button_grab_deadline_monotonic", 0.0)
         release_stale()
         self.assertEqual(fake_device.ungrab_calls, 1)
+
+    def test_release_button_grab_retries_after_ungrab_failure(self) -> None:
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+        )
+
+        fake_device = _GrabDeviceStub(fail_ungrab_times=1)
+        begin = cast(Callable[..., None], getattr(listener, "_begin_button_suppress"))
+        release = cast(Callable[[], None], getattr(listener, "_release_button_grab"))
+
+        begin(source_device=fake_device, button_label="front")
+        release()
+        self.assertIs(getattr(listener, "_button_grabbed_device"), fake_device)
+
+        release()
+        self.assertEqual(fake_device.ungrab_calls, 2)
+        self.assertIsNone(getattr(listener, "_button_grabbed_device"))
+
+    def test_release_gesture_grab_retries_after_ungrab_failure(self) -> None:
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="rear",
+            gesture_freeze_pointer=True,
+        )
+
+        fake_device = _GrabDeviceStub(fail_ungrab_times=1)
+        start_capture = cast(
+            Callable[..., None], getattr(listener, "_start_gesture_capture")
+        )
+        release = cast(Callable[[], None], getattr(listener, "_release_gesture_grab"))
+
+        start_capture(source_device=fake_device, button_label="rear")
+        release()
+        self.assertIs(getattr(listener, "_gesture_grabbed_device"), fake_device)
+
+        release()
+        self.assertEqual(fake_device.ungrab_calls, 2)
+        self.assertIsNone(getattr(listener, "_gesture_grabbed_device"))
 
     def test_finish_small_movement_dispatches_click_async(self) -> None:
         listener = SideButtonListener(
@@ -528,7 +573,7 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             run_evdev = cast(Callable[[], None], getattr(listener, "_run_evdev"))
             run_evdev()
 
-    def test_right_trigger_gesture_suppresses_native_right_click_until_release(
+    def test_right_trigger_gesture_does_not_suppress_native_right_click(
         self,
     ) -> None:
         class _FakeEvent:
@@ -620,15 +665,12 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             run_evdev = cast(Callable[[], None], getattr(listener, "_run_evdev"))
             run_evdev()
 
-        start_capture.assert_called_once()
+        self.assertEqual(start_capture.call_count, 0)
         finish_capture.assert_called_once_with("right")
-        begin_suppress.assert_called_once_with(
-            source_device=fake_device,
-            button_label="right",
-        )
-        end_suppress.assert_called_once_with(button_label="right")
+        self.assertEqual(begin_suppress.call_count, 0)
+        self.assertEqual(end_suppress.call_count, 0)
 
-    def test_right_trigger_release_ends_suppress_before_finish_capture(self) -> None:
+    def test_right_trigger_release_finishes_capture_without_suppress_calls(self) -> None:
         class _FakeEvent:
             def __init__(self, event_type: int, code: int, value: int) -> None:
                 self.type = event_type
@@ -735,9 +777,112 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             run_evdev = cast(Callable[[], None], getattr(listener, "_run_evdev"))
             run_evdev()
 
-        self.assertEqual(timeline, ["begin", "start", "end", "finish"])
+        self.assertEqual(timeline, ["finish"])
 
-    def test_front_click_path_does_not_use_button_suppress_grab(self) -> None:
+    def test_right_trigger_starts_capture_only_after_move(self) -> None:
+        class _FakeEvent:
+            def __init__(self, event_type: int, code: int, value: int) -> None:
+                self.type = event_type
+                self.code = code
+                self.value = value
+
+        class _FakeDevice:
+            def __init__(self, events: list[_FakeEvent], key_cap: list[int]) -> None:
+                self.fd = 90
+                self._events = events
+                self._key_cap = key_cap
+
+            def capabilities(self) -> dict[int, list[int]]:
+                return {1: self._key_cap}
+
+            def read(self) -> list[_FakeEvent]:
+                events = self._events
+                self._events = []
+                return events
+
+            def close(self) -> None:
+                return
+
+        right_code = 273
+        rel_x = 0
+        events = [
+            _FakeEvent(1, right_code, 1),
+            _FakeEvent(2, rel_x, 160),
+            _FakeEvent(1, right_code, 0),
+        ]
+        fake_device = _FakeDevice(events=events, key_cap=[272, 273, 275, 276])
+
+        fake_ecodes = type(
+            "_Ecodes",
+            (),
+            {
+                "BTN_SIDE": 275,
+                "BTN_EXTRA": 276,
+                "BTN_BACK": 278,
+                "BTN_FORWARD": 277,
+                "BTN_LEFT": 272,
+                "BTN_RIGHT": right_code,
+                "EV_KEY": 1,
+                "EV_REL": 2,
+                "REL_X": rel_x,
+                "REL_Y": 1,
+            },
+        )
+        fake_module = type(
+            "_EvdevModule",
+            (),
+            {
+                "InputDevice": lambda _path: fake_device,
+                "ecodes": fake_ecodes,
+                "list_devices": lambda: ["/dev/input/event-right-move"],
+            },
+        )
+
+        listener = SideButtonListener(
+            on_front_press=lambda: None,
+            on_rear_press=lambda: None,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="right",
+        )
+
+        def _import_module(name: str):
+            if name == "evdev":
+                return fake_module
+            return _real_import_module(name)
+
+        timeline: list[str] = []
+
+        def _mark_start(*, source_device: object, button_label: str) -> None:
+            del source_device
+            self.assertEqual(button_label, "right")
+            timeline.append("start")
+
+        def _mark_finish(button_label: str) -> None:
+            self.assertEqual(button_label, "right")
+            timeline.append("finish")
+            listener._stop.set()
+
+        with (
+            patch(
+                "vibemouse.mouse_listener.importlib.import_module",
+                side_effect=_import_module,
+            ),
+            patch("select.select", return_value=([90], [], [])),
+            patch.object(listener, "_start_gesture_capture", side_effect=_mark_start),
+            patch.object(listener, "_finish_gesture_capture", side_effect=_mark_finish),
+            patch.object(listener, "_begin_button_suppress") as begin_suppress,
+            patch.object(listener, "_end_button_suppress") as end_suppress,
+        ):
+            run_evdev = cast(Callable[[], None], getattr(listener, "_run_evdev"))
+            run_evdev()
+
+        self.assertEqual(timeline, ["start", "finish"])
+        self.assertEqual(begin_suppress.call_count, 0)
+        self.assertEqual(end_suppress.call_count, 0)
+
+    def test_front_click_path_uses_button_suppress_grab(self) -> None:
         class _FakeEvent:
             def __init__(self, event_type: int, code: int, value: int) -> None:
                 self.type = event_type
@@ -821,17 +966,24 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             run_evdev()
 
         self.assertEqual(callbacks, ["front"])
-        self.assertEqual(begin_suppress.call_count, 0)
-        self.assertEqual(end_suppress.call_count, 0)
+        begin_suppress.assert_called_once_with(
+            source_device=fake_device,
+            button_label="front",
+        )
+        end_suppress.assert_called_once_with(button_label="front")
 
 
 class _GrabDeviceStub:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_ungrab_times: int = 0) -> None:
         self.grab_calls = 0
         self.ungrab_calls = 0
+        self._remaining_ungrab_failures = fail_ungrab_times
 
     def grab(self) -> None:
         self.grab_calls += 1
 
     def ungrab(self) -> None:
         self.ungrab_calls += 1
+        if self._remaining_ungrab_failures > 0:
+            self._remaining_ungrab_failures -= 1
+            raise OSError("temporary ungrab failure")

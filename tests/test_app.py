@@ -416,3 +416,47 @@ class VoiceMouseAppPrewarmTests(unittest.TestCase):
         prewarm(0.0)
 
         self.assertEqual(prewarm_calls, [True])
+
+
+class VoiceMouseAppLoggingTests(unittest.TestCase):
+    @staticmethod
+    def _make_subject() -> VoiceMouseApp:
+        return object.__new__(VoiceMouseApp)
+
+    def test_transcription_failure_logs_exception(self) -> None:
+        subject = self._make_subject()
+        recording = SimpleNamespace(duration_s=1.0, path=Path("/tmp/fail.wav"))
+        setattr(
+            subject,
+            "_transcriber",
+            SimpleNamespace(
+                transcribe=lambda _path: (_ for _ in ()).throw(RuntimeError("boom"))
+            ),
+        )
+        setattr(
+            subject,
+            "_output",
+            SimpleNamespace(
+                send_to_openclaw_result=lambda _text: SimpleNamespace(
+                    route="openclaw", reason="ok"
+                ),
+                inject_or_clipboard=lambda _text, auto_paste: "typed",
+            ),
+        )
+        setattr(subject, "_config", SimpleNamespace(auto_paste=False))
+        setattr(subject, "_transcribe_lock", threading.Lock())
+        setattr(subject, "_workers_lock", threading.Lock())
+        setattr(subject, "_workers", set())
+        setattr(subject, "_safe_unlink", lambda _path: None)
+
+        transcribe_and_output = cast(
+            Callable[[object, str], None],
+            getattr(subject, "_transcribe_and_output"),
+        )
+
+        with self.assertLogs("vibemouse.app", level="ERROR") as captured:
+            transcribe_and_output(recording, "default")
+
+        self.assertTrue(
+            any("Transcription failed" in entry for entry in captured.output)
+        )

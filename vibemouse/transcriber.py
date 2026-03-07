@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import importlib
+import logging
+import re
 from pathlib import Path
 from threading import Lock
 from typing import Protocol, cast
 
 from vibemouse.config import AppConfig
+
+_LOG = logging.getLogger(__name__)
 
 
 class SenseVoiceTranscriber:
@@ -34,184 +38,23 @@ class SenseVoiceTranscriber:
                 return
 
             backend = self._config.transcriber_backend
-            if backend == "auto":
-                self._build_auto_backend()
-                return
+            if backend in {"auto", "funasr"}:
+                _LOG.warning(
+                    "Backend %r is deprecated; using 'funasr_onnx' instead", backend
+                )
+                backend = "funasr_onnx"
 
-            if backend == "funasr":
-                self._build_funasr_backend()
-                return
+            if backend != "funasr_onnx":
+                raise RuntimeError(f"Unsupported backend {backend!r}. Use funasr_onnx.")
 
-            if backend == "funasr_onnx":
-                self._build_funasr_onnx_backend()
-                return
-
-            raise RuntimeError(
-                f"Unsupported backend {backend!r}. Use funasr_onnx, auto, or funasr."
-            )
-
-    def _build_auto_backend(self) -> None:
-        errors: list[str] = []
-
-        if self._looks_like_intel_npu_device(self._config.device):
-            try:
-                self._build_funasr_onnx_backend()
-                return
-            except Exception as error:
-                errors.append(f"funasr_onnx: {error}")
-                try:
-                    self._build_funasr_backend()
-                    return
-                except Exception as fallback_error:
-                    errors.append(f"funasr: {fallback_error}")
-
-        elif self._looks_like_cuda_device(self._config.device):
-            try:
-                self._build_funasr_backend()
-                return
-            except Exception as error:
-                errors.append(f"funasr: {error}")
-                try:
-                    self._build_funasr_onnx_backend()
-                    return
-                except Exception as fallback_error:
-                    errors.append(f"funasr_onnx: {fallback_error}")
-        else:
-            try:
-                self._build_funasr_onnx_backend()
-                return
-            except Exception as error:
-                errors.append(f"funasr_onnx: {error}")
-                try:
-                    self._build_funasr_backend()
-                    return
-                except Exception as fallback_error:
-                    errors.append(f"funasr: {fallback_error}")
-
-        raise RuntimeError(
-            "Failed to initialize any transcriber backend. " + " | ".join(errors)
-        )
-
-    def _build_funasr_backend(self) -> None:
-        backend = _FunASRBackend(self._config)
-        self._transcriber = backend
-        self.device_in_use = backend.device_in_use
-        self.backend_in_use = "funasr"
+            self._build_funasr_onnx_backend()
+            return
 
     def _build_funasr_onnx_backend(self) -> None:
         backend = _FunASRONNXBackend(self._config)
         self._transcriber = backend
         self.device_in_use = backend.device_in_use
         self.backend_in_use = "funasr_onnx"
-
-    @staticmethod
-    def _looks_like_intel_npu_device(device: str) -> bool:
-        normalized = device.strip().lower()
-        return normalized.startswith("npu") or normalized.startswith("openvino:npu")
-
-    @staticmethod
-    def _looks_like_cuda_device(device: str) -> bool:
-        normalized = device.strip().lower()
-        return normalized.startswith("cuda")
-
-
-class _FunASRBackend:
-    def __init__(self, config: AppConfig) -> None:
-        self._config: AppConfig = config
-        self._model: _SenseModel | None = None
-        self._postprocess: _PostprocessFn | None = None
-        self._load_lock: Lock = Lock()
-        self.device_in_use: str = config.device
-        self._ensure_model_loaded()
-
-    def transcribe(self, audio_path: Path) -> str:
-        if self._model is None:
-            raise RuntimeError("FunASR model is not initialized")
-
-        result = self._model.generate(
-            input=str(audio_path),
-            cache={},
-            language=self._config.language,
-            use_itn=self._config.use_itn,
-            merge_vad=self._config.merge_vad,
-            merge_length_s=self._config.merge_length_s,
-            batch_size_s=60,
-        )
-        if not result:
-            return ""
-
-        text_obj = result[0].get("text", "")
-        if not isinstance(text_obj, str):
-            return ""
-
-        text = text_obj.strip()
-        if self._postprocess is None:
-            return text
-        return self._postprocess(text).strip()
-
-    def _ensure_model_loaded(self) -> None:
-        if self._model is not None:
-            return
-        with self._load_lock:
-            if self._model is not None:
-                return
-            try:
-                model, postprocess = self._create_model(self._config.device)
-                self._model = model
-                self._postprocess = postprocess
-                self.device_in_use = self._config.device
-                return
-            except Exception as primary_error:
-                if (
-                    not self._config.fallback_to_cpu
-                    or self._config.device.strip().lower() == "cpu"
-                ):
-                    raise RuntimeError(
-                        f"Failed to load FunASR SenseVoice on {self._config.device}: {primary_error}"
-                    ) from primary_error
-
-            try:
-                model, postprocess = self._create_model("cpu")
-            except Exception as cpu_error:
-                raise RuntimeError(
-                    f"Failed to load FunASR SenseVoice on {self._config.device} and cpu fallback: {cpu_error}"
-                ) from cpu_error
-
-            self._model = model
-            self._postprocess = postprocess
-            self.device_in_use = "cpu"
-
-    def _create_model(self, device: str) -> tuple[_SenseModel, _PostprocessFn]:
-        try:
-            funasr_module = importlib.import_module("funasr")
-            postprocess_module = importlib.import_module(
-                "funasr.utils.postprocess_utils"
-            )
-        except Exception as error:
-            raise RuntimeError(
-                "FunASR is not installed or not importable in current environment"
-            ) from error
-
-        auto_model_ctor = cast(_AutoModelCtor, getattr(funasr_module, "AutoModel"))
-        rich_transcription_postprocess = cast(
-            _PostprocessFn,
-            getattr(postprocess_module, "rich_transcription_postprocess"),
-        )
-
-        kwargs: dict[str, object] = {
-            "model": self._config.model_name,
-            "trust_remote_code": self._config.trust_remote_code,
-            "device": device,
-            "disable_update": True,
-        }
-        if self._config.enable_vad:
-            kwargs["vad_model"] = "fsmn-vad"
-            kwargs["vad_kwargs"] = {
-                "max_single_segment_time": self._config.vad_max_single_segment_ms
-            }
-
-        model = auto_model_ctor(**kwargs)
-        return model, rich_transcription_postprocess
 
 
 class _FunASRONNXBackend:
@@ -271,6 +114,11 @@ class _FunASRONNXBackend:
                 self._model = model
                 self._postprocess = postprocess
                 self.device_in_use = self._resolve_device_label(self._config.device)
+                _LOG.info(
+                    "Loaded funasr_onnx model: device_in_use=%s model=%s",
+                    self.device_in_use,
+                    requested_path,
+                )
                 return
             except Exception as primary_error:
                 if not self._config.fallback_to_cpu:
@@ -294,6 +142,9 @@ class _FunASRONNXBackend:
             self._model = model
             self._postprocess = postprocess
             self.device_in_use = "cpu"
+            _LOG.warning(
+                "Loaded funasr_onnx model with CPU fallback after device load failure"
+            )
 
     def _resolve_onnx_model_dir(self) -> Path:
         raw_model = self._config.model_name
@@ -393,35 +244,30 @@ class _FunASRONNXBackend:
                 getattr(post_module, "rich_transcription_postprocess"),
             )
         except Exception:
-            return lambda text: text
+            try:
+                post_module = importlib.import_module(
+                    "funasr_onnx.utils.postprocess_utils"
+                )
+                return cast(
+                    _PostprocessFn,
+                    getattr(post_module, "rich_transcription_postprocess"),
+                )
+            except Exception:
+                return _strip_sensevoice_control_tokens
+
+
+_SENSEVOICE_CONTROL_TOKEN_RE = re.compile(r"<\|[^|>]+\|>")
+
+
+def _strip_sensevoice_control_tokens(text: str) -> str:
+    cleaned = _SENSEVOICE_CONTROL_TOKEN_RE.sub("", text)
+    return " ".join(cleaned.split()).strip()
 
 
 class _TranscriberProtocol(Protocol):
     device_in_use: str
 
     def transcribe(self, audio_path: Path) -> str: ...
-
-
-class _SenseResultItem(Protocol):
-    def get(self, key: str, default: str = "") -> str | object: ...
-
-
-class _SenseModel(Protocol):
-    def generate(
-        self,
-        *,
-        input: str,
-        cache: dict[str, object],
-        language: str,
-        use_itn: bool,
-        merge_vad: bool,
-        merge_length_s: int,
-        batch_size_s: int,
-    ) -> list[_SenseResultItem]: ...
-
-
-class _AutoModelCtor(Protocol):
-    def __call__(self, **kwargs: object) -> _SenseModel: ...
 
 
 class _PostprocessFn(Protocol):

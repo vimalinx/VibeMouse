@@ -30,7 +30,7 @@ class MainEntryTests(unittest.TestCase):
 
     def test_default_invocation_runs_app(self) -> None:
         app_instance = MagicMock()
-        cfg = SimpleNamespace()
+        cfg = SimpleNamespace(log_level="INFO")
         with (
             patch("vibemouse.main.load_config", return_value=cfg) as load_config,
             patch(
@@ -46,7 +46,7 @@ class MainEntryTests(unittest.TestCase):
 
     def test_explicit_run_subcommand_runs_app(self) -> None:
         app_instance = MagicMock()
-        cfg = SimpleNamespace()
+        cfg = SimpleNamespace(log_level="INFO")
         with (
             patch("vibemouse.main.load_config", return_value=cfg),
             patch("vibemouse.main.VoiceMouseApp", return_value=app_instance),

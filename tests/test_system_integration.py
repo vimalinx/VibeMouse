@@ -7,9 +7,7 @@ from unittest.mock import patch
 
 from vibemouse.system_integration import (
     HyprlandSystemIntegration,
-    MacOSSystemIntegration,
     NoopSystemIntegration,
-    WindowsSystemIntegration,
     create_system_integration,
     detect_hyprland_session,
     is_terminal_window_payload,
@@ -38,13 +36,13 @@ class SystemIntegrationDetectionTests(unittest.TestCase):
         integration = create_system_integration(env={}, platform_name="linux")
         self.assertIsInstance(integration, NoopSystemIntegration)
 
-    def test_factory_returns_windows_integration(self) -> None:
+    def test_factory_returns_noop_on_non_hyprland_windows(self) -> None:
         integration = create_system_integration(env={}, platform_name="win32")
-        self.assertIsInstance(integration, WindowsSystemIntegration)
+        self.assertIsInstance(integration, NoopSystemIntegration)
 
-    def test_factory_returns_macos_integration(self) -> None:
+    def test_factory_returns_noop_on_non_hyprland_macos(self) -> None:
         integration = create_system_integration(env={}, platform_name="darwin")
-        self.assertIsInstance(integration, MacOSSystemIntegration)
+        self.assertIsInstance(integration, NoopSystemIntegration)
 
 
 class HyprlandSystemIntegrationTests(unittest.TestCase):
@@ -133,28 +131,6 @@ class HyprlandSystemIntegrationTests(unittest.TestCase):
         self.assertEqual(
             integration.paste_shortcuts(terminal_active=False),
             (("CTRL", "V"),),
-        )
-
-    def test_windows_paste_shortcuts_terminal_and_default(self) -> None:
-        integration = WindowsSystemIntegration()
-        self.assertEqual(
-            integration.paste_shortcuts(terminal_active=True),
-            (("CTRL SHIFT", "V"), ("SHIFT", "Insert"), ("CTRL", "V")),
-        )
-        self.assertEqual(
-            integration.paste_shortcuts(terminal_active=False),
-            (("CTRL", "V"),),
-        )
-
-    def test_macos_paste_shortcuts_use_cmd_v(self) -> None:
-        integration = MacOSSystemIntegration()
-        self.assertEqual(
-            integration.paste_shortcuts(terminal_active=True),
-            (("CMD", "V"),),
-        )
-        self.assertEqual(
-            integration.paste_shortcuts(terminal_active=False),
-            (("CMD", "V"),),
         )
 
     def test_terminal_payload_detection_by_title_hint(self) -> None:

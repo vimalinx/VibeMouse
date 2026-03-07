@@ -7,6 +7,7 @@ Mouse-side-button voice input for VibeCoding.
 AI adaptation guides:
 - English: [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - 中文：[`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
+- AI debug runbook: [`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
 
 ## What This Project Does
 
@@ -203,6 +204,37 @@ Full configuration source of truth: `vibemouse/config.py`.
 
 ## Troubleshooting Shortlist
 
+### Postmortem: "Everything stopped working" (record/gesture/enter)
+
+When users report that recording, right-button gestures, and Enter all fail together,
+the most common root cause is **mouse side-button event mismatch**, not a dead service.
+
+Typical failure pattern:
+- Service is `active`, but button actions never trigger.
+- Hyprland workspace commands still return `ok` when run manually.
+- User perception: "all features are broken".
+
+Real root causes we hit:
+1. Side-button codes were only matched as `BTN_SIDE`/`BTN_EXTRA`.
+2. Some mice emit `BTN_BACK`/`BTN_FORWARD` aliases instead.
+3. Runtime env had action mappings, but listener never recognized raw events.
+
+Current fix in code:
+- `x1` accepts `{BTN_SIDE, BTN_BACK}`
+- `x2` accepts `{BTN_EXTRA, BTN_FORWARD}`
+
+Fast verification order (recommended):
+1. `systemctl --user is-active vibemouse.service`
+2. `hyprctl dispatch workspace e-1` and `hyprctl dispatch workspace e+1`
+3. `vibemouse doctor`
+4. Confirm runtime env from `/proc/<MainPID>/environ`:
+   - `VIBEMOUSE_GESTURE_TRIGGER_BUTTON`
+   - `VIBEMOUSE_GESTURE_LEFT_ACTION`
+   - `VIBEMOUSE_GESTURE_RIGHT_ACTION`
+   - `VIBEMOUSE_FRONT_BUTTON` / `VIBEMOUSE_REAR_BUTTON`
+
+If (1)-(3) pass but buttons still do nothing, debug listener code-path first.
+
 ### Rear button still sends Enter while recording
 
 Check Hyprland-level hard bind conflict in
@@ -239,6 +271,7 @@ Use this guide when adapting to Windows/macOS or custom environments:
 
 - [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - [`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
+- [`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
 
 It contains architecture contracts, dependency download links, adaptation workflow,
 and a prompt template for autonomous platform adaptation.

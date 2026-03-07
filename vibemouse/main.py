@@ -6,6 +6,7 @@ from vibemouse.app import VoiceMouseApp
 from vibemouse.config import load_config
 from vibemouse.deploy import configure_deploy_parser, run_deploy
 from vibemouse.doctor import run_doctor
+from vibemouse.logging_setup import configure_logging
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -40,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_deploy(args)
 
     config = load_config()
+    configure_logging(config.log_level)
     app = VoiceMouseApp(config)
     app.run()
     return 0

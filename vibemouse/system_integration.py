@@ -119,24 +119,6 @@ class NoopSystemIntegration:
         return ()
 
 
-class WindowsSystemIntegration(NoopSystemIntegration):
-    def paste_shortcuts(self, *, terminal_active: bool) -> tuple[tuple[str, str], ...]:
-        if terminal_active:
-            return (
-                ("CTRL SHIFT", "V"),
-                ("SHIFT", "Insert"),
-                ("CTRL", "V"),
-            )
-        return (("CTRL", "V"),)
-
-
-class MacOSSystemIntegration(NoopSystemIntegration):
-    def paste_shortcuts(self, *, terminal_active: bool) -> tuple[tuple[str, str], ...]:
-        if terminal_active:
-            return (("CMD", "V"),)
-        return (("CMD", "V"),)
-
-
 class HyprlandSystemIntegration:
     @property
     def is_hyprland(self) -> bool:
@@ -251,13 +233,7 @@ def create_system_integration(
     if detect_hyprland_session(env=env):
         return HyprlandSystemIntegration()
 
-    normalized_platform = (
-        (platform_name if platform_name is not None else sys.platform).strip().lower()
-    )
-    if normalized_platform.startswith("win"):
-        return WindowsSystemIntegration()
-    if normalized_platform == "darwin":
-        return MacOSSystemIntegration()
+    _ = platform_name if platform_name is not None else sys.platform
 
     return NoopSystemIntegration()
 

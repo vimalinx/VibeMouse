@@ -7,6 +7,7 @@ English README: [`README.md`](./README.md)
 AI 适配指南：
 - English: [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - 中文：[`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
+- AI 调试 Runbook：[`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
 
 ## 这个项目解决什么问题
 
@@ -203,6 +204,37 @@ tail -f ~/.local/state/vibemouse/service.log
 
 ## 故障排查（短版）
 
+### 事故复盘："录音/手势/回车一起失灵"
+
+当你遇到“录音、右键手势、回车都失灵”时，最常见根因并不是服务挂掉，
+而是**鼠标侧键底层事件码不匹配**。
+
+典型现象：
+- `vibemouse.service` 显示 `active`
+- `hyprctl dispatch workspace e-1/e+1` 手动执行是 `ok`
+- 但侧键触发不到任何动作，体感像“全炸了”
+
+我们实战遇到的真实根因：
+1. 监听器只匹配了 `BTN_SIDE` / `BTN_EXTRA`
+2. 部分鼠标实际会报 `BTN_BACK` / `BTN_FORWARD`
+3. 配置本身正确，但监听层没识别到原始按键事件
+
+当前代码修复：
+- `x1` 同时匹配 `{BTN_SIDE, BTN_BACK}`
+- `x2` 同时匹配 `{BTN_EXTRA, BTN_FORWARD}`
+
+建议排查顺序（最快）：
+1. `systemctl --user is-active vibemouse.service`
+2. 手动执行 `hyprctl dispatch workspace e-1` 与 `e+1`
+3. `vibemouse doctor`
+4. 从 `/proc/<MainPID>/environ` 确认运行时变量：
+   - `VIBEMOUSE_GESTURE_TRIGGER_BUTTON`
+   - `VIBEMOUSE_GESTURE_LEFT_ACTION`
+   - `VIBEMOUSE_GESTURE_RIGHT_ACTION`
+   - `VIBEMOUSE_FRONT_BUTTON` / `VIBEMOUSE_REAR_BUTTON`
+
+如果前 1~3 项都通过但按钮仍无动作，请优先排查监听器事件兼容路径。
+
 ### 录音时后侧键仍然发送回车
 
 检查并移除 Hyprland 的硬绑定：
@@ -238,6 +270,7 @@ sudo usermod -aG input $USER
 
 - [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - [`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
+- [`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
 
 里面包含：架构契约、依赖下载地址、平台适配流程、以及可直接复用的 AI 提示模板。
 
