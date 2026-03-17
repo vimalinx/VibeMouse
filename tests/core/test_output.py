@@ -198,11 +198,10 @@ class TextOutputRoutingTests(unittest.TestCase):
             patch("vibemouse.output.pyperclip.copy") as copy_mock,
         ):
             route = subject.send_to_openclaw("hello")
+            detail = subject.send_to_openclaw_result("hello")
 
         self.assertEqual(route, "clipboard")
-        self.assertEqual(copy_mock.call_count, 1)
-
-        detail = subject.send_to_openclaw_result("hello")
+        self.assertEqual(copy_mock.call_count, 2)
         self.assertEqual(detail.route, "clipboard")
         self.assertEqual(detail.reason, "invalid_command")
 
