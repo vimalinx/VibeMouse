@@ -111,12 +111,12 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
                 {"recording": False, "state": "idle", "listener_mode": "inline"},
             )
 
-    def test_set_recording_status_includes_ipc_port_when_command_server_is_running(self) -> None:
+    def test_set_recording_status_includes_ipc_socket_when_command_server_is_running(self) -> None:
         subject = self._make_subject()
         with tempfile.TemporaryDirectory(prefix="vibemouse-status-") as tmp:
             status_file = Path(tmp) / "status.json"
             setattr(subject, "_config", SimpleNamespace(status_file=status_file))
-            setattr(subject, "_command_server", SimpleNamespace(port=43125))
+            setattr(subject, "_command_server", SimpleNamespace(endpoint="test://vibemouse"))
 
             set_status = cast(
                 Callable[[bool], None],
@@ -131,7 +131,7 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
             self.assertEqual(
                 payload,
                 {
-                    "ipc_port": 43125,
+                    "ipc_socket": "test://vibemouse",
                     "listener_mode": "inline",
                     "recording": False,
                     "state": "idle",

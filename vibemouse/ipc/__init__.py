@@ -12,13 +12,14 @@ from vibemouse.ipc.messages import (
     serialize_message,
     write_lpjson_frame,
 )
-from vibemouse.ipc.server import AgentCommandServer, IPCServer
+from vibemouse.ipc.server import AgentCommandServer, IPCServer, default_command_endpoint
 
 __all__ = [
     "AgentCommandServer",
     "binary_reader",
     "binary_writer",
     "CommandMessage",
+    "default_command_endpoint",
     "EventMessage",
     "IPCClient",
     "IPCServer",

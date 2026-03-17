@@ -1170,6 +1170,73 @@ class SideButtonListenerGestureTests(unittest.TestCase):
         begin_suppress.assert_not_called()
         end_suppress.assert_not_called()
 
+    def test_pynput_ignores_right_click_when_not_right_trigger(self) -> None:
+        class _FakeButton:
+            def __init__(self, name: str) -> None:
+                self._name = name
+
+            def __str__(self) -> str:
+                return f"Button.{self._name}"
+
+        class _FakeMouseListener:
+            def __init__(
+                self,
+                *,
+                on_click: Callable[[int, int, object, bool], None],
+                on_move: Callable[[int, int], None],
+            ) -> None:
+                self._on_click = on_click
+                self._on_move = on_move
+
+            def start(self) -> None:
+                self._on_click(10, 20, fake_button_holder.right, True)
+                self._on_click(10, 20, fake_button_holder.right, False)
+
+            def stop(self) -> None:
+                return
+
+        fake_button_holder = type("_FakeButtonHolder", (), {"right": _FakeButton("right")})
+
+        def _listener_ctor(
+            *, on_click: Callable[[int, int, object, bool], None], on_move: Callable[[int, int], None]
+        ) -> _FakeMouseListener:
+            return _FakeMouseListener(on_click=on_click, on_move=on_move)
+
+        fake_mouse_module = type(
+            "_FakeMouseModule",
+            (),
+            {
+                "Listener": _listener_ctor,
+                "Button": fake_button_holder,
+            },
+        )
+
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="rear",
+            system_integration=_NeutralSystemIntegration(),
+        )
+
+        def _import_module(name: str):
+            if name == "pynput.mouse":
+                return fake_mouse_module
+            return _real_import_module(name)
+
+        with (
+            patch(
+                "vibemouse.mouse_listener.importlib.import_module",
+                side_effect=_import_module,
+            ),
+            patch.object(listener, "_dispatch_click_async") as dispatch_click_async,
+        ):
+            listener._run_pynput(timeout_s=0.2)
+
+        dispatch_click_async.assert_not_called()
+
 
 class _GrabDeviceStub:
     def __init__(self, *, fail_ungrab_times: int = 0) -> None:

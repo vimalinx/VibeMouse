@@ -8,6 +8,8 @@ AI adaptation guides:
 - English: [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - 中文：[`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
 - AI debug runbook: [`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
+- IPC integration: [`docs/IPC.md`](./docs/IPC.md)
+- IPC 集成说明: [`docs/IPC.zh-CN.md`](./docs/IPC.zh-CN.md)
 
 ## What This Project Does
 

@@ -100,6 +100,9 @@ class SideButtonListener:
         self._right_tap_timeout_s: float = 0.30
         self._right_click_slop_px: int = 8
         self._right_hold_suppress_timeout_s: float = 8.0
+        self._injected_click_lock: threading.Lock = threading.Lock()
+        self._ignore_injected_right_click_events: int = 0
+        self._ignore_injected_right_click_until: float = 0.0
         self._stop: threading.Event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -349,7 +352,11 @@ class SideButtonListener:
 
         front_candidates = button_map[self._front_button]
         rear_candidates = button_map[self._rear_button]
-        right_candidates = {"right", "button2"}
+        right_candidates = (
+            {"right", "button2"}
+            if self._gestures_enabled and self._gesture_trigger_button == "right"
+            else set()
+        )
 
         def on_click(x: int, y: int, button: object, pressed: bool) -> None:
             btn_name = str(button).lower().split(".")[-1]
@@ -362,6 +369,9 @@ class SideButtonListener:
                 button_label = "right"
 
             if button_label is None:
+                return
+            if button_label == "right" and self._should_ignore_injected_right_click():
+                _LOG.debug("Ignoring self-injected right click event from pynput backend")
                 return
 
             if self._gestures_enabled and self._is_gesture_trigger_button(button_label):
@@ -537,6 +547,7 @@ class SideButtonListener:
         return should_replay, direction
 
     def _dispatch_right_click(self) -> None:
+        self._arm_injected_right_click_ignore()
         mouse_module = importlib.import_module("pynput.mouse")
         controller_ctor = cast(
             _MouseControllerCtor,
@@ -550,6 +561,25 @@ class SideButtonListener:
         controller.press(button_holder.right)
         time.sleep(0.012)
         controller.release(button_holder.right)
+
+    def _arm_injected_right_click_ignore(self) -> None:
+        with self._injected_click_lock:
+            # Ignore the next synthetic press/release pair that we inject ourselves.
+            self._ignore_injected_right_click_events = 2
+            self._ignore_injected_right_click_until = time.monotonic() + 0.5
+
+    def _should_ignore_injected_right_click(self) -> bool:
+        with self._injected_click_lock:
+            if self._ignore_injected_right_click_events <= 0:
+                return False
+            if time.monotonic() > self._ignore_injected_right_click_until:
+                self._ignore_injected_right_click_events = 0
+                self._ignore_injected_right_click_until = 0.0
+                return False
+            self._ignore_injected_right_click_events -= 1
+            if self._ignore_injected_right_click_events <= 0:
+                self._ignore_injected_right_click_until = 0.0
+            return True
 
     def _start_gesture_capture(
         self,
