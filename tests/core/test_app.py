@@ -11,7 +11,12 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
-from vibemouse.core.commands import COMMAND_SEND_ENTER, EVENT_MOUSE_SIDE_FRONT_PRESS
+from vibemouse.core.commands import (
+    COMMAND_RELOAD_CONFIG,
+    COMMAND_SEND_ENTER,
+    COMMAND_SHUTDOWN,
+    EVENT_MOUSE_SIDE_FRONT_PRESS,
+)
 from vibemouse.app import VoiceMouseApp
 
 
@@ -80,7 +85,10 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
                 dict[str, object],
                 json.loads(status_file.read_text(encoding="utf-8")),
             )
-            self.assertEqual(payload, {"recording": True, "state": "recording"})
+            self.assertEqual(
+                payload,
+                {"recording": True, "state": "recording", "listener_mode": "inline"},
+            )
 
     def test_set_recording_status_writes_idle_payload(self) -> None:
         subject = self._make_subject()
@@ -98,7 +106,37 @@ class VoiceMouseAppWorkspaceTests(unittest.TestCase):
                 dict[str, object],
                 json.loads(status_file.read_text(encoding="utf-8")),
             )
-            self.assertEqual(payload, {"recording": False, "state": "idle"})
+            self.assertEqual(
+                payload,
+                {"recording": False, "state": "idle", "listener_mode": "inline"},
+            )
+
+    def test_set_recording_status_includes_ipc_port_when_command_server_is_running(self) -> None:
+        subject = self._make_subject()
+        with tempfile.TemporaryDirectory(prefix="vibemouse-status-") as tmp:
+            status_file = Path(tmp) / "status.json"
+            setattr(subject, "_config", SimpleNamespace(status_file=status_file))
+            setattr(subject, "_command_server", SimpleNamespace(port=43125))
+
+            set_status = cast(
+                Callable[[bool], None],
+                getattr(subject, "_set_recording_status"),
+            )
+            set_status(False)
+
+            payload = cast(
+                dict[str, object],
+                json.loads(status_file.read_text(encoding="utf-8")),
+            )
+            self.assertEqual(
+                payload,
+                {
+                    "ipc_port": 43125,
+                    "listener_mode": "inline",
+                    "recording": False,
+                    "state": "idle",
+                },
+            )
 
 
 class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
@@ -303,6 +341,34 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         handle_event(EVENT_MOUSE_SIDE_FRONT_PRESS)
 
         self.assertEqual(send_enter_calls, ["enter"])
+
+    def test_execute_command_reload_config_dispatches_to_reload_handler(self) -> None:
+        subject = self._make_subject()
+        reload_calls: list[bool] = []
+        setattr(subject, "_command_lock", threading.RLock())
+        setattr(subject, "_reload_config", lambda: reload_calls.append(True))
+
+        execute_command = cast(
+            Callable[[str], None],
+            getattr(subject, "_execute_command"),
+        )
+        execute_command(COMMAND_RELOAD_CONFIG)
+
+        self.assertEqual(reload_calls, [True])
+
+    def test_execute_command_shutdown_sets_stop_event(self) -> None:
+        subject = self._make_subject()
+        stop_event = threading.Event()
+        setattr(subject, "_command_lock", threading.RLock())
+        setattr(subject, "_stop_event", stop_event)
+
+        execute_command = cast(
+            Callable[[str], None],
+            getattr(subject, "_execute_command"),
+        )
+        execute_command(COMMAND_SHUTDOWN)
+
+        self.assertTrue(stop_event.is_set())
 
     def test_transcribe_and_output_openclaw_uses_openclaw_sender(self) -> None:
         subject = self._make_subject()

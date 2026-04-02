@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibemouse.local/schema/ipc.schema.json",
+  "title": "VibeMouse IPC Messages",
+  "description": "LPJSON message types for agent-listener communication over stdio",
+  "oneOf": [
+    { "$ref": "#/$defs/EventMessage" },
+    { "$ref": "#/$defs/CommandMessage" }
+  ],
+  "$defs": {
+    "EventMessage": {
+      "type": "object",
+      "required": ["type", "event"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "event" },
+        "event": {
+          "type": "string",
+          "description": "Normalized input event name, e.g. mouse.side_front.press",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        }
+      }
+    },
+    "CommandMessage": {
+      "type": "object",
+      "required": ["type", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "command" },
+        "command": {
+          "type": "string",
+          "enum": [
+            "noop",
+            "reload_config",
+            "send_enter",
+            "shutdown",
+            "submit_recording",
+            "toggle_recording",
+            "trigger_secondary_action",
+            "workspace_left",
+            "workspace_right"
+          ]
+        }
+      }
+    }
+  }
+}

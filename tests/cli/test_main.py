@@ -33,6 +33,7 @@ class MainEntryTests(unittest.TestCase):
         cfg = SimpleNamespace(log_level="INFO")
         with (
             patch("vibemouse.main.load_config", return_value=cfg) as load_config,
+            patch("vibemouse.main.resolve_config_path", return_value="/tmp/config.json"),
             patch(
                 "vibemouse.main.VoiceMouseApp", return_value=app_instance
             ) as app_ctor,
@@ -42,6 +43,13 @@ class MainEntryTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(load_config.call_count, 1)
         self.assertEqual(app_ctor.call_count, 1)
+        self.assertEqual(
+            app_ctor.call_args.kwargs,
+            {
+                "listener_mode": "inline",
+                "config_path": "/tmp/config.json",
+            },
+        )
         self.assertEqual(app_instance.run.call_count, 1)
 
     def test_explicit_run_subcommand_runs_app(self) -> None:
@@ -49,11 +57,35 @@ class MainEntryTests(unittest.TestCase):
         cfg = SimpleNamespace(log_level="INFO")
         with (
             patch("vibemouse.main.load_config", return_value=cfg),
+            patch("vibemouse.main.resolve_config_path", return_value="/tmp/config.json"),
             patch("vibemouse.main.VoiceMouseApp", return_value=app_instance),
         ):
             rc = main(["run"])
 
         self.assertEqual(rc, 0)
+        self.assertEqual(app_instance.run.call_count, 1)
+
+    def test_agent_run_off_mode_is_forwarded_to_app(self) -> None:
+        app_instance = MagicMock()
+        cfg = SimpleNamespace(log_level="INFO")
+        with (
+            patch("vibemouse.main.load_config", return_value=cfg),
+            patch(
+                "vibemouse.main.resolve_config_path",
+                return_value="/tmp/agent-config.json",
+            ),
+            patch("vibemouse.main.VoiceMouseApp", return_value=app_instance) as app_ctor,
+        ):
+            rc = main(["agent", "run", "--listener", "off"])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            app_ctor.call_args.kwargs,
+            {
+                "listener_mode": "off",
+                "config_path": "/tmp/agent-config.json",
+            },
+        )
         self.assertEqual(app_instance.run.call_count, 1)
 
     def test_deploy_subcommand_dispatches_to_deploy(self) -> None:
