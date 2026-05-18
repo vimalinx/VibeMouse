@@ -9,6 +9,7 @@ from vibemouse.core.app import VoiceMouseApp
 from vibemouse.core.logging_setup import configure_logging
 from vibemouse.ops.deploy import configure_deploy_parser, run_deploy
 from vibemouse.ops.doctor import run_doctor
+from vibemouse.ops.smoke import run_smoke
 from vibemouse.settings import SettingsServer
 
 
@@ -47,6 +48,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="apply safe auto-remediations before running checks",
     )
+    smoke_parser = subparsers.add_parser(
+        "smoke",
+        help="run software integration smoke checks",
+    )
+    smoke_parser.add_argument("--config", default=None, help="path to config.json")
+
     deploy_parser = subparsers.add_parser(
         "deploy",
         help="generate service/env files and deploy as user service",
@@ -88,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         apply_fixes_raw = getattr(args, "fix", False)
         apply_fixes = bool(apply_fixes_raw)
         return run_doctor(apply_fixes=apply_fixes)
+    if command == "smoke":
+        return run_smoke(args)
     if command == "deploy":
         return run_deploy(args)
     if command == "settings":

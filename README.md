@@ -218,6 +218,18 @@ Current auto-fixes (`--fix`) include:
 
 Exit code is non-zero when any `FAIL` check exists.
 
+## Smoke Check
+
+Run the software integration smoke check after code changes or before deploy:
+
+```bash
+vibemouse smoke
+```
+
+Use `--config <path>` to validate a specific config. Smoke copies the normalized
+config to a temporary workspace before mutable reload/status checks, so it does
+not overwrite the real status file or control the production daemon.
+
 ## Deploy Command
 
 The deploy command is scriptable and can be used directly:

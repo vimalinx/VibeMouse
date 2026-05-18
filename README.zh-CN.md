@@ -219,6 +219,16 @@ vibemouse doctor --fix
 
 只要存在 `FAIL`，命令退出码就是非零，方便自动化检测。
 
+## Smoke 自检
+
+代码改动后或部署前，可以运行软件集成 smoke 检查：
+
+```bash
+vibemouse smoke
+```
+
+如果要验证指定配置，用 `--config <path>`。Smoke 会把归一化后的配置复制到临时工作区后再做可变的 reload/status 检查，不会覆盖真实状态文件，也不会控制生产 daemon。
+
 ## Deploy 命令
 
 也可以直接用 deploy 子命令：

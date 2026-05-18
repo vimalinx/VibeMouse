@@ -99,6 +99,18 @@ class MainEntryTests(unittest.TestCase):
         self.assertEqual(run_deploy.call_count, 1)
         self.assertEqual(load_config.call_count, 0)
 
+    def test_smoke_subcommand_dispatches_to_smoke_runner(self) -> None:
+        with (
+            patch("vibemouse.main.run_smoke", return_value=6) as run_smoke,
+            patch("vibemouse.main.load_config") as load_config,
+        ):
+            rc = main(["smoke", "--config", "/tmp/smoke-config.json"])
+
+        self.assertEqual(rc, 6)
+        self.assertEqual(run_smoke.call_count, 1)
+        self.assertEqual(run_smoke.call_args.args[0].config, "/tmp/smoke-config.json")
+        self.assertEqual(load_config.call_count, 0)
+
     def test_settings_command_starts_local_settings_server(self) -> None:
         server = MagicMock()
         server.base_url = "http://127.0.0.1:8765"
