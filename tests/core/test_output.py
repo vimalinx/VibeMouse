@@ -125,10 +125,6 @@ class TextOutputRoutingTests(unittest.TestCase):
         setattr(subject, "_enter_key", "ENTER")
         setattr(subject, "_atspi", None)
         setattr(subject, "_hyprland_session", False)
-        setattr(subject, "_openclaw_command", "openclaw")
-        setattr(subject, "_openclaw_agent", None)
-        setattr(subject, "_openclaw_timeout_s", 20.0)
-        setattr(subject, "_openclaw_retries", 0)
         setattr(
             subject,
             "_system_integration",
@@ -140,118 +136,6 @@ class TextOutputRoutingTests(unittest.TestCase):
                 is_text_input_focused=lambda: None,
             ),
         )
-
-    def test_send_to_openclaw_success_returns_openclaw(self) -> None:
-        subject = self._make_subject()
-        keyboard = _FakeKeyboardController()
-        self._bind_keyboard(subject, keyboard)
-
-        with patch(
-            "vibemouse.output.subprocess.Popen",
-            return_value=SimpleNamespace(),
-        ) as popen_mock:
-            route = subject.send_to_openclaw("hello")
-            detail = subject.send_to_openclaw_result("hello")
-
-        self.assertEqual(route, "openclaw")
-        self.assertEqual(
-            popen_mock.call_args.args[0],
-            ["openclaw", "agent", "--message", "hello", "--json"],
-        )
-        self.assertEqual(detail.route, "openclaw")
-        self.assertEqual(detail.reason, "dispatched")
-
-    def test_send_to_openclaw_includes_agent_when_configured(self) -> None:
-        subject = self._make_subject()
-        keyboard = _FakeKeyboardController()
-        self._bind_keyboard(subject, keyboard)
-        setattr(subject, "_openclaw_agent", "ops")
-
-        with patch(
-            "vibemouse.output.subprocess.Popen",
-            return_value=SimpleNamespace(),
-        ) as popen_mock:
-            route = subject.send_to_openclaw("hello")
-
-        self.assertEqual(route, "openclaw")
-        self.assertEqual(
-            popen_mock.call_args.args[0],
-            ["openclaw", "agent", "--message", "hello", "--json", "--agent", "ops"],
-        )
-
-    def test_send_to_openclaw_invalid_command_falls_back_to_clipboard(self) -> None:
-        subject = self._make_subject()
-        keyboard = _FakeKeyboardController()
-        self._bind_keyboard(subject, keyboard)
-        setattr(subject, "_openclaw_command", 'openclaw "')
-
-        with (
-            patch("vibemouse.output.pyperclip.copy") as copy_mock,
-        ):
-            route = subject.send_to_openclaw("hello")
-
-        self.assertEqual(route, "clipboard")
-        self.assertEqual(copy_mock.call_count, 1)
-
-        detail = subject.send_to_openclaw_result("hello")
-        self.assertEqual(detail.route, "clipboard")
-        self.assertEqual(detail.reason, "invalid_command")
-
-    def test_send_to_openclaw_spawn_error_falls_back_to_clipboard(self) -> None:
-        subject = self._make_subject()
-        keyboard = _FakeKeyboardController()
-        self._bind_keyboard(subject, keyboard)
-
-        with (
-            patch(
-                "vibemouse.output.subprocess.Popen",
-                side_effect=OSError("openclaw missing"),
-            ),
-            patch("vibemouse.output.pyperclip.copy") as copy_mock,
-        ):
-            route = subject.send_to_openclaw("hello")
-
-        self.assertEqual(route, "clipboard")
-        self.assertEqual(copy_mock.call_count, 1)
-
-    def test_send_to_openclaw_retries_once_then_succeeds(self) -> None:
-        subject = self._make_subject()
-        keyboard = _FakeKeyboardController()
-        self._bind_keyboard(subject, keyboard)
-        setattr(subject, "_openclaw_retries", 1)
-
-        popen_side_effects = [
-            OSError("temporary spawn failure"),
-            SimpleNamespace(),
-        ]
-        with patch(
-            "vibemouse.output.subprocess.Popen",
-            side_effect=popen_side_effects,
-        ) as popen_mock:
-            detail = subject.send_to_openclaw_result("hello")
-
-        self.assertEqual(detail.route, "openclaw")
-        self.assertEqual(detail.reason, "dispatched_after_retry_1")
-        self.assertEqual(popen_mock.call_count, 2)
-
-    def test_send_to_openclaw_retries_exhausted_falls_back_to_clipboard(self) -> None:
-        subject = self._make_subject()
-        keyboard = _FakeKeyboardController()
-        self._bind_keyboard(subject, keyboard)
-        setattr(subject, "_openclaw_retries", 1)
-
-        with (
-            patch(
-                "vibemouse.output.subprocess.Popen",
-                side_effect=OSError("spawn failure"),
-            ),
-            patch("vibemouse.output.pyperclip.copy") as copy_mock,
-        ):
-            detail = subject.send_to_openclaw_result("hello")
-
-        self.assertEqual(detail.route, "clipboard")
-        self.assertEqual(detail.reason, "spawn_error:OSError")
-        self.assertEqual(copy_mock.call_count, 1)
 
     @staticmethod
     def _not_focused() -> bool:

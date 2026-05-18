@@ -26,7 +26,7 @@ def _build_entries() -> tuple[DictionaryEntry, ...]:
             term="Claude Code",
             phrases=("claude code", "claude"),
             weight=7,
-            scope="openclaw",
+            scope="default",
             enabled=True,
         ),
         DictionaryEntry(
@@ -44,10 +44,11 @@ class DictionaryServiceTests(unittest.TestCase):
         service = DictionaryService(_build_entries())
 
         self.assertEqual(
-            service.hotword_phrases(scope="openclaw"),
+            service.hotword_phrases(scope="default"),
             [
                 ("codex", 8),
                 ("code x", 8),
+                ("terminal", 6),
                 ("claude code", 7),
                 ("claude", 7),
             ],
@@ -57,22 +58,20 @@ class DictionaryServiceTests(unittest.TestCase):
         service = DictionaryService(_build_entries())
 
         self.assertEqual(
-            service.normalize("please ask code x to review", scope="openclaw"),
+            service.normalize("please ask code x to review", scope="default"),
             "please ask Codex to review",
         )
 
-    def test_normalize_ignores_entries_outside_active_scope(self) -> None:
+    def test_removed_openclaw_scope_is_rejected(self) -> None:
         service = DictionaryService(_build_entries())
 
-        self.assertEqual(
-            service.normalize("send it to terminal", scope="openclaw"),
-            "send it to terminal",
-        )
+        with self.assertRaisesRegex(ValueError, "scope must be one of"):
+            service.normalize("send it to terminal", scope="openclaw")
 
     def test_normalize_prefers_longest_phrase_without_double_substitution(self) -> None:
         service = DictionaryService(_build_entries())
 
         self.assertEqual(
-            service.normalize("claude code is ready", scope="openclaw"),
+            service.normalize("claude code is ready", scope="default"),
             "Claude Code is ready",
         )

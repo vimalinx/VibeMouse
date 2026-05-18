@@ -142,16 +142,12 @@ def apply_env_overrides(
         config.enter_mode,
         {"enter", "ctrl_enter", "shift_enter", "none"},
     )
-    openclaw_command = source.get(
-        "VIBEMOUSE_OPENCLAW_COMMAND",
-        config.openclaw_command,
-    ).strip()
-    if not openclaw_command:
-        raise ValueError("VIBEMOUSE_OPENCLAW_COMMAND must not be empty")
-    openclaw_agent = source.get(
-        "VIBEMOUSE_OPENCLAW_AGENT",
-        "" if config.openclaw_agent is None else config.openclaw_agent,
-    ).strip()
+    translation_provider = _read_choice(
+        source,
+        "VIBEMOUSE_TRANSLATION_PROVIDER",
+        config.translation_provider,
+        {"auto", "deepl", "opus_mt", "libretranslate", "mymemory"},
+    )
     prewarm_delay_s = _require_non_negative_float(
         "VIBEMOUSE_PREWARM_DELAY_S",
         _read_float(source, "VIBEMOUSE_PREWARM_DELAY_S", config.prewarm_delay_s),
@@ -213,6 +209,52 @@ def apply_env_overrides(
         gesture_right_action=gesture_right_action,
         enter_mode=enter_mode,
         auto_paste=_read_bool(source, "VIBEMOUSE_AUTO_PASTE", config.auto_paste),
+        translation_toast_enabled=_read_bool(
+            source,
+            "VIBEMOUSE_TRANSLATION_TOAST_ENABLED",
+            config.translation_toast_enabled,
+        ),
+        readback_tts_enabled=_read_bool(
+            source,
+            "VIBEMOUSE_READBACK_TTS_ENABLED",
+            config.readback_tts_enabled,
+        ),
+        readback_tts_voice=source.get(
+            "VIBEMOUSE_READBACK_TTS_VOICE",
+            config.readback_tts_voice,
+        ).strip()
+        or config.readback_tts_voice,
+        translation_provider=translation_provider,
+        translation_deepl_auth_key=_read_optional_string(
+            source,
+            "VIBEMOUSE_DEEPL_AUTH_KEY",
+            config.translation_deepl_auth_key,
+        ),
+        translation_deepl_api_url=_read_optional_string(
+            source,
+            "VIBEMOUSE_DEEPL_API_URL",
+            config.translation_deepl_api_url,
+        ),
+        translation_libretranslate_url=_read_optional_string(
+            source,
+            "VIBEMOUSE_LIBRETRANSLATE_URL",
+            config.translation_libretranslate_url,
+        ),
+        translation_libretranslate_api_key=_read_optional_string(
+            source,
+            "VIBEMOUSE_LIBRETRANSLATE_API_KEY",
+            config.translation_libretranslate_api_key,
+        ),
+        translation_mymemory_email=_read_optional_string(
+            source,
+            "VIBEMOUSE_MYMEMORY_EMAIL",
+            config.translation_mymemory_email,
+        ),
+        translation_mymemory_key=_read_optional_string(
+            source,
+            "VIBEMOUSE_MYMEMORY_KEY",
+            config.translation_mymemory_key,
+        ),
         trust_remote_code=_read_bool(
             source,
             "VIBEMOUSE_TRUST_REMOTE_CODE",
@@ -225,19 +267,10 @@ def apply_env_overrides(
         ),
         prewarm_delay_s=prewarm_delay_s,
         status_file=_read_path(source, "VIBEMOUSE_STATUS_FILE", config.status_file),
-        openclaw_command=openclaw_command,
-        openclaw_agent=openclaw_agent or None,
-        openclaw_timeout_s=_require_positive_float(
-            "VIBEMOUSE_OPENCLAW_TIMEOUT_S",
-            _read_float(
-                source,
-                "VIBEMOUSE_OPENCLAW_TIMEOUT_S",
-                config.openclaw_timeout_s,
-            ),
-        ),
-        openclaw_retries=_require_non_negative(
-            "VIBEMOUSE_OPENCLAW_RETRIES",
-            _read_int(source, "VIBEMOUSE_OPENCLAW_RETRIES", config.openclaw_retries),
+        command_auth_token=_read_optional_string(
+            source,
+            "VIBEMOUSE_COMMAND_AUTH_TOKEN",
+            config.command_auth_token,
         ),
         front_button=front_button,
         rear_button=rear_button,
@@ -262,6 +295,18 @@ def _read_int(source: Mapping[str, str], name: str, default: int) -> int:
         return int(raw.strip())
     except ValueError as error:
         raise ValueError(f"{name} must be an integer, got {raw!r}") from error
+
+
+def _read_optional_string(
+    source: Mapping[str, str],
+    name: str,
+    default: str | None,
+) -> str | None:
+    raw = source.get(name)
+    if raw is None:
+        return default
+    normalized = raw.strip()
+    return normalized or None
 
 
 def _read_optional_int(

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from vibemouse.config import DictionaryEntry
 
 
-_SCOPE_CHOICES = {"default", "openclaw", "both"}
+_SCOPE_CHOICES = {"default", "both"}
 
 
 class DictionaryService:

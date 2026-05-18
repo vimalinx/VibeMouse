@@ -18,7 +18,7 @@ from vibemouse.core.transcriber import SenseVoiceTranscriber
 
 
 PROFILE_CHOICES = ("fast", "enhanced")
-TARGET_CHOICES = ("default", "openclaw")
+TARGET_CHOICES = ("default",)
 
 
 @dataclass(frozen=True)

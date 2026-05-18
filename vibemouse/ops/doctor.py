@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import shlex
-import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
@@ -28,9 +26,6 @@ def run_doctor(*, apply_fixes: bool = False) -> int:
 
     config_check, config = _check_config_load()
     checks.append(config_check)
-
-    if config is not None:
-        checks.extend(_check_openclaw(config))
 
     checks.append(_check_audio_input(config))
     checks.append(_check_input_device_permissions(config))
@@ -130,149 +125,11 @@ def _check_config_load() -> tuple[DoctorCheck, AppConfig | None]:
             detail=(
                 "loaded "
                 + f"front={config.front_button}, rear={config.rear_button}, "
-                + f"openclaw_agent={config.openclaw_agent or 'none'}"
+                + f"profile={config.profiles.get('default', 'unknown')}"
             ),
         ),
         config,
     )
-
-
-def _check_openclaw(config: AppConfig) -> list[DoctorCheck]:
-    checks: list[DoctorCheck] = []
-
-    command_parts = _parse_openclaw_command(config.openclaw_command)
-    if command_parts is None:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-command",
-                status="fail",
-                detail="invalid VIBEMOUSE_OPENCLAW_COMMAND shell syntax",
-            )
-        )
-        return checks
-
-    executable = command_parts[0]
-    resolved = shutil.which(executable)
-    if resolved is None:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-command",
-                status="fail",
-                detail=f"executable not found in PATH: {executable}",
-            )
-        )
-        return checks
-
-    checks.append(
-        DoctorCheck(
-            name="openclaw-command",
-            status="ok",
-            detail=f"resolved executable: {resolved}",
-        )
-    )
-
-    configured_agent = config.openclaw_agent
-    if not configured_agent:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail="no agent configured; set VIBEMOUSE_OPENCLAW_AGENT",
-            )
-        )
-        return checks
-
-    probe_cmd = [*command_parts, "agents", "list", "--json"]
-    try:
-        probe = subprocess.run(
-            probe_cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=8.0,
-        )
-    except subprocess.TimeoutExpired:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail="timed out while probing available agents",
-            )
-        )
-        return checks
-    except OSError as error:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail=f"failed to run agent probe: {error}",
-            )
-        )
-        return checks
-
-    if probe.returncode != 0:
-        stderr = probe.stderr.strip()
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail=(
-                    "agent probe failed"
-                    if not stderr
-                    else f"agent probe failed: {stderr}"
-                ),
-            )
-        )
-        return checks
-
-    try:
-        payload = json.loads(probe.stdout)
-    except json.JSONDecodeError:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail="agent probe returned invalid JSON",
-            )
-        )
-        return checks
-
-    if not isinstance(payload, list):
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail="agent probe returned unexpected payload shape",
-            )
-        )
-        return checks
-
-    available_agents = {
-        str(entry.get("id", "")).strip() for entry in payload if isinstance(entry, dict)
-    }
-    if configured_agent in available_agents:
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="ok",
-                detail=f"configured agent exists: {configured_agent}",
-            )
-        )
-    else:
-        sample = ", ".join(sorted(agent for agent in available_agents if agent)[:5])
-        checks.append(
-            DoctorCheck(
-                name="openclaw-agent",
-                status="warn",
-                detail=(
-                    f"configured agent not found: {configured_agent}; "
-                    + (f"available: {sample}" if sample else "no agents listed")
-                ),
-            )
-        )
-
-    return checks
-
 
 def _check_audio_input(config: AppConfig | None) -> DoctorCheck:
     try:
@@ -585,19 +442,6 @@ def _run_subprocess(
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-
-
-def _parse_openclaw_command(raw: str) -> list[str] | None:
-    cleaned = raw.strip()
-    if not cleaned:
-        return None
-    try:
-        parts = shlex.split(cleaned)
-    except ValueError:
-        return None
-    if not parts:
-        return None
-    return parts
 
 
 def _print_checks(checks: list[DoctorCheck]) -> None:

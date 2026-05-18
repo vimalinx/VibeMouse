@@ -26,9 +26,16 @@ _ENTER_MODE_CHOICES = {"enter", "ctrl_enter", "shift_enter", "none"}
 _LOG_LEVEL_CHOICES = {"debug", "info", "warning", "error", "critical"}
 _STATUS_STATE_CHOICES = {"idle", "recording", "processing"}
 _LISTENER_MODE_CHOICES = {"inline", "child", "off"}
-_PROFILE_TARGET_CHOICES = {"default", "openclaw"}
+_PROFILE_TARGET_CHOICES = {"default"}
 _PROFILE_MODE_CHOICES = {"fast", "enhanced"}
-_DICTIONARY_SCOPE_CHOICES = {"default", "openclaw", "both"}
+_DICTIONARY_SCOPE_CHOICES = {"default", "both"}
+_TRANSLATION_PROVIDER_CHOICES = {
+    "auto",
+    "deepl",
+    "opus_mt",
+    "libretranslate",
+    "mymemory",
+}
 _DICTIONARY_WEIGHT_MIN = 1
 _DICTIONARY_WEIGHT_MAX = 10
 
@@ -73,14 +80,21 @@ class AppConfig:
     gesture_right_action: str
     enter_mode: str
     auto_paste: bool
+    translation_toast_enabled: bool
+    readback_tts_enabled: bool
+    readback_tts_voice: str
+    translation_provider: str
+    translation_deepl_auth_key: str | None
+    translation_deepl_api_url: str | None
+    translation_libretranslate_url: str | None
+    translation_libretranslate_api_key: str | None
+    translation_mymemory_email: str | None
+    translation_mymemory_key: str | None
     trust_remote_code: bool
     prewarm_on_start: bool
     prewarm_delay_s: float
     status_file: Path
-    openclaw_command: str
-    openclaw_agent: str | None
-    openclaw_timeout_s: float
-    openclaw_retries: int
+    command_auth_token: str | None
     front_button: str
     rear_button: str
     record_hotkey_keycodes: tuple[int, ...]
@@ -118,7 +132,6 @@ def build_default_config_document() -> dict[str, object]:
         "bindings": {},
         "profiles": {
             "default": "fast",
-            "openclaw": "enhanced",
         },
         "dictionary": [],
         "transcriber": {
@@ -156,12 +169,18 @@ def build_default_config_document() -> dict[str, object]:
         "output": {
             "enter_mode": "enter",
             "auto_paste": False,
+            "translation_toast_enabled": False,
+            "readback_tts_enabled": False,
+            "readback_tts_voice": "en-US-EmmaMultilingualNeural",
         },
-        "openclaw": {
-            "command": "openclaw",
-            "agent": "main",
-            "timeout_s": 20.0,
-            "retries": 0,
+        "translation": {
+            "provider": "auto",
+            "deepl_auth_key": None,
+            "deepl_api_url": None,
+            "libretranslate_url": None,
+            "libretranslate_api_key": None,
+            "mymemory_email": None,
+            "mymemory_key": None,
         },
         "startup": {
             "prewarm_on_start": True,
@@ -173,6 +192,7 @@ def build_default_config_document() -> dict[str, object]:
         "runtime": {
             "status_file": str(default_status_file()),
             "temp_dir": str(default_temp_dir()),
+            "command_auth_token": None,
         },
     }
 
@@ -184,7 +204,7 @@ def config_document_to_app_config(document: Mapping[str, object]) -> AppConfig:
     transcriber = _expect_mapping(normalized, "transcriber")
     input_section = _expect_mapping(normalized, "input")
     output = _expect_mapping(normalized, "output")
-    openclaw = _expect_mapping(normalized, "openclaw")
+    translation = _expect_mapping(normalized, "translation")
     startup = _expect_mapping(normalized, "startup")
     logs = _expect_mapping(normalized, "logs")
     runtime = _expect_mapping(normalized, "runtime")
@@ -228,14 +248,33 @@ def config_document_to_app_config(document: Mapping[str, object]) -> AppConfig:
         gesture_right_action=str(input_section["gesture_right_action"]),
         enter_mode=str(output["enter_mode"]),
         auto_paste=bool(output["auto_paste"]),
+        translation_toast_enabled=bool(output["translation_toast_enabled"]),
+        readback_tts_enabled=bool(output["readback_tts_enabled"]),
+        readback_tts_voice=str(output["readback_tts_voice"]),
+        translation_provider=str(translation["provider"]),
+        translation_deepl_auth_key=_coerce_optional_string(
+            translation["deepl_auth_key"]
+        ),
+        translation_deepl_api_url=_coerce_optional_string(
+            translation["deepl_api_url"]
+        ),
+        translation_libretranslate_url=_coerce_optional_string(
+            translation["libretranslate_url"]
+        ),
+        translation_libretranslate_api_key=_coerce_optional_string(
+            translation["libretranslate_api_key"]
+        ),
+        translation_mymemory_email=_coerce_optional_string(
+            translation["mymemory_email"]
+        ),
+        translation_mymemory_key=_coerce_optional_string(
+            translation["mymemory_key"]
+        ),
         trust_remote_code=bool(transcriber["trust_remote_code"]),
         prewarm_on_start=bool(startup["prewarm_on_start"]),
         prewarm_delay_s=float(startup["prewarm_delay_s"]),
         status_file=Path(str(runtime["status_file"])),
-        openclaw_command=str(openclaw["command"]),
-        openclaw_agent=_coerce_optional_string(openclaw["agent"]),
-        openclaw_timeout_s=float(openclaw["timeout_s"]),
-        openclaw_retries=int(openclaw["retries"]),
+        command_auth_token=_coerce_optional_string(runtime["command_auth_token"]),
         front_button=str(input_section["front_button"]),
         rear_button=str(input_section["rear_button"]),
         record_hotkey_keycodes=tuple(
@@ -260,7 +299,7 @@ def normalize_config_document(document: Mapping[str, object]) -> dict[str, objec
         "transcriber",
         "input",
         "output",
-        "openclaw",
+        "translation",
         "startup",
         "logs",
         "runtime",
@@ -298,8 +337,8 @@ def normalize_config_document(document: Mapping[str, object]) -> dict[str, objec
     normalized["output"] = _normalize_output_section(
         _merge_section(defaults, document, "output")
     )
-    normalized["openclaw"] = _normalize_openclaw_section(
-        _merge_section(defaults, document, "openclaw")
+    normalized["translation"] = _normalize_translation_section(
+        _merge_section(defaults, document, "translation")
     )
     normalized["startup"] = _normalize_startup_section(
         _merge_section(defaults, document, "startup")
@@ -462,7 +501,7 @@ def _normalize_profiles_section(section: Mapping[str, object]) -> dict[str, obje
             details.append(f"missing {', '.join(sorted(missing))}")
         if unknown:
             details.append(f"unknown {', '.join(sorted(unknown))}")
-        raise ValueError("profiles must define default and openclaw targets" + (
+        raise ValueError("profiles must define default target" + (
             f" ({'; '.join(details)})" if details else ""
         ))
 
@@ -594,18 +633,36 @@ def _normalize_output_section(section: Mapping[str, object]) -> dict[str, object
             section["enter_mode"], "output.enter_mode", _ENTER_MODE_CHOICES
         ),
         "auto_paste": _coerce_bool(section["auto_paste"], "output.auto_paste"),
+        "translation_toast_enabled": _coerce_bool(
+            section["translation_toast_enabled"],
+            "output.translation_toast_enabled",
+        ),
+        "readback_tts_enabled": _coerce_bool(
+            section["readback_tts_enabled"],
+            "output.readback_tts_enabled",
+        ),
+        "readback_tts_voice": _coerce_non_empty_string(
+            section["readback_tts_voice"],
+            "output.readback_tts_voice",
+        ),
     }
 
 
-def _normalize_openclaw_section(section: Mapping[str, object]) -> dict[str, object]:
-    command = _coerce_non_empty_string(section["command"], "openclaw.command")
+def _normalize_translation_section(section: Mapping[str, object]) -> dict[str, object]:
     return {
-        "command": command,
-        "agent": _coerce_optional_string(section["agent"]),
-        "timeout_s": _coerce_positive_float(
-            section["timeout_s"], "openclaw.timeout_s"
+        "provider": _coerce_choice(
+            section["provider"],
+            "translation.provider",
+            _TRANSLATION_PROVIDER_CHOICES,
         ),
-        "retries": _coerce_non_negative_int(section["retries"], "openclaw.retries"),
+        "deepl_auth_key": _coerce_optional_string(section["deepl_auth_key"]),
+        "deepl_api_url": _coerce_optional_string(section["deepl_api_url"]),
+        "libretranslate_url": _coerce_optional_string(section["libretranslate_url"]),
+        "libretranslate_api_key": _coerce_optional_string(
+            section["libretranslate_api_key"]
+        ),
+        "mymemory_email": _coerce_optional_string(section["mymemory_email"]),
+        "mymemory_key": _coerce_optional_string(section["mymemory_key"]),
     }
 
 
@@ -630,6 +687,7 @@ def _normalize_runtime_section(section: Mapping[str, object]) -> dict[str, objec
     return {
         "status_file": str(_coerce_path(section["status_file"], "runtime.status_file")),
         "temp_dir": str(_coerce_path(section["temp_dir"], "runtime.temp_dir")),
+        "command_auth_token": _coerce_optional_string(section["command_auth_token"]),
     }
 
 

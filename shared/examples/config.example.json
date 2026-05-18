@@ -1,8 +1,7 @@
 {
   "schema_version": 1,
   "profiles": {
-    "default": "fast",
-    "openclaw": "enhanced"
+    "default": "fast"
   },
   "dictionary": [
     {
@@ -16,7 +15,7 @@
       "term": "Claude Code",
       "phrases": ["claude code", "cloud code"],
       "weight": 7,
-      "scope": "openclaw",
+      "scope": "default",
       "enabled": true
     }
   ],
@@ -38,11 +37,10 @@
   },
   "output": {
     "enter_mode": "enter",
-    "auto_paste": false
-  },
-  "openclaw": {
-    "command": "openclaw",
-    "agent": "main"
+    "auto_paste": false,
+    "translation_toast_enabled": false,
+    "readback_tts_enabled": false,
+    "readback_tts_voice": "en-US-EmmaMultilingualNeural"
   },
   "startup": {
     "prewarm_on_start": true

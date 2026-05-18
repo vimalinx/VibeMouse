@@ -17,7 +17,7 @@ class LoadConfigTests(unittest.TestCase):
 
         self.assertEqual(
             document["profiles"],
-            {"default": "fast", "openclaw": "enhanced"},
+            {"default": "fast"},
         )
         self.assertEqual(document["dictionary"], [])
 
@@ -38,7 +38,7 @@ class LoadConfigTests(unittest.TestCase):
 
         self.assertEqual(
             config.profiles,
-            {"default": "enhanced", "openclaw": "enhanced"},
+            {"default": "enhanced"},
         )
         self.assertEqual(len(config.dictionary), 1)
         self.assertEqual(config.dictionary[0].term, "Codex")
@@ -64,14 +64,21 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.gesture_left_action, "noop")
         self.assertEqual(config.gesture_right_action, "send_enter")
         self.assertEqual(config.enter_mode, "enter")
+        self.assertFalse(config.translation_toast_enabled)
+        self.assertFalse(config.readback_tts_enabled)
+        self.assertEqual(config.readback_tts_voice, "en-US-EmmaMultilingualNeural")
+        self.assertEqual(config.translation_provider, "auto")
+        self.assertIsNone(config.translation_deepl_auth_key)
+        self.assertIsNone(config.translation_deepl_api_url)
+        self.assertIsNone(config.translation_libretranslate_url)
+        self.assertIsNone(config.translation_libretranslate_api_key)
+        self.assertIsNone(config.translation_mymemory_email)
+        self.assertIsNone(config.translation_mymemory_key)
         self.assertEqual(config.button_debounce_ms, 150)
         self.assertTrue(config.prewarm_on_start)
         self.assertEqual(config.prewarm_delay_s, 0.0)
         self.assertEqual(config.status_file.name, "vibemouse-status.json")
-        self.assertEqual(config.openclaw_command, "openclaw")
-        self.assertEqual(config.openclaw_agent, "main")
-        self.assertEqual(config.openclaw_timeout_s, 20.0)
-        self.assertEqual(config.openclaw_retries, 0)
+        self.assertIsNone(config.command_auth_token)
         self.assertEqual(config.front_button, "x1")
         self.assertEqual(config.rear_button, "x2")
         self.assertEqual(config.record_hotkey_keycodes, (42, 125, 193))
@@ -79,7 +86,7 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.bindings, {})
         self.assertEqual(
             config.profiles,
-            {"default": "fast", "openclaw": "enhanced"},
+            {"default": "fast"},
         )
         self.assertEqual(config.dictionary, ())
 
@@ -152,6 +159,49 @@ class LoadConfigTests(unittest.TestCase):
             config = load_config()
 
         self.assertTrue(config.auto_paste)
+
+    def test_translation_settings_can_be_configured_via_env(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "VIBEMOUSE_TRANSLATION_TOAST_ENABLED": "false",
+                "VIBEMOUSE_READBACK_TTS_ENABLED": "true",
+                "VIBEMOUSE_READBACK_TTS_VOICE": "en-US-EmmaMultilingualNeural",
+                "VIBEMOUSE_TRANSLATION_PROVIDER": "deepl",
+                "VIBEMOUSE_DEEPL_AUTH_KEY": "secret",
+                "VIBEMOUSE_DEEPL_API_URL": "https://api-free.deepl.com/v2/translate",
+                "VIBEMOUSE_LIBRETRANSLATE_URL": "http://127.0.0.1:5000",
+                "VIBEMOUSE_LIBRETRANSLATE_API_KEY": "libre-key",
+                "VIBEMOUSE_MYMEMORY_EMAIL": "me@example.com",
+                "VIBEMOUSE_MYMEMORY_KEY": "memory-key",
+            },
+            clear=True,
+        ):
+            config = load_config()
+
+        self.assertFalse(config.translation_toast_enabled)
+        self.assertTrue(config.readback_tts_enabled)
+        self.assertEqual(config.readback_tts_voice, "en-US-EmmaMultilingualNeural")
+        self.assertEqual(config.translation_provider, "deepl")
+        self.assertEqual(config.translation_deepl_auth_key, "secret")
+        self.assertEqual(
+            config.translation_deepl_api_url,
+            "https://api-free.deepl.com/v2/translate",
+        )
+        self.assertEqual(config.translation_libretranslate_url, "http://127.0.0.1:5000")
+        self.assertEqual(config.translation_libretranslate_api_key, "libre-key")
+        self.assertEqual(config.translation_mymemory_email, "me@example.com")
+        self.assertEqual(config.translation_mymemory_key, "memory-key")
+
+    def test_translation_provider_can_be_set_to_opus_mt(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"VIBEMOUSE_TRANSLATION_PROVIDER": "opus_mt"},
+            clear=True,
+        ):
+            config = load_config()
+
+        self.assertEqual(config.translation_provider, "opus_mt")
 
     def test_gestures_can_be_enabled(self) -> None:
         with patch.dict(os.environ, {"VIBEMOUSE_GESTURES_ENABLED": "true"}, clear=True):
@@ -334,59 +384,15 @@ class LoadConfigTests(unittest.TestCase):
             ):
                 _ = load_config()
 
-    def test_openclaw_fields_can_be_configured(self) -> None:
+    def test_command_auth_token_can_be_configured(self) -> None:
         with patch.dict(
             os.environ,
-            {
-                "VIBEMOUSE_OPENCLAW_COMMAND": "openclaw --profile prod",
-                "VIBEMOUSE_OPENCLAW_AGENT": "ops-bot",
-                "VIBEMOUSE_OPENCLAW_TIMEOUT_S": "7.5",
-                "VIBEMOUSE_OPENCLAW_RETRIES": "2",
-            },
+            {"VIBEMOUSE_COMMAND_AUTH_TOKEN": "  reload-secret  "},
             clear=True,
         ):
             config = load_config()
 
-        self.assertEqual(config.openclaw_command, "openclaw --profile prod")
-        self.assertEqual(config.openclaw_agent, "ops-bot")
-        self.assertEqual(config.openclaw_timeout_s, 7.5)
-        self.assertEqual(config.openclaw_retries, 2)
-
-    def test_empty_openclaw_command_is_rejected(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"VIBEMOUSE_OPENCLAW_COMMAND": "   "},
-            clear=True,
-        ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "VIBEMOUSE_OPENCLAW_COMMAND must not be empty",
-            ):
-                _ = load_config()
-
-    def test_non_positive_openclaw_timeout_is_rejected(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"VIBEMOUSE_OPENCLAW_TIMEOUT_S": "0"},
-            clear=True,
-        ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "VIBEMOUSE_OPENCLAW_TIMEOUT_S must be a positive float",
-            ):
-                _ = load_config()
-
-    def test_negative_openclaw_retries_is_rejected(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"VIBEMOUSE_OPENCLAW_RETRIES": "-1"},
-            clear=True,
-        ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "VIBEMOUSE_OPENCLAW_RETRIES must be a non-negative integer",
-            ):
-                _ = load_config()
+        self.assertEqual(config.command_auth_token, "reload-secret")
 
     def test_same_front_and_rear_buttons_are_rejected(self) -> None:
         with patch.dict(

@@ -38,15 +38,29 @@ _LEGACY_FIELD_PATHS: dict[str, tuple[str, str]] = {
     "gesture_right_action": ("input", "gesture_right_action"),
     "enter_mode": ("output", "enter_mode"),
     "auto_paste": ("output", "auto_paste"),
-    "openclaw_command": ("openclaw", "command"),
-    "openclaw_agent": ("openclaw", "agent"),
-    "openclaw_timeout_s": ("openclaw", "timeout_s"),
-    "openclaw_retries": ("openclaw", "retries"),
+    "translation_toast_enabled": ("output", "translation_toast_enabled"),
+    "readback_tts_enabled": ("output", "readback_tts_enabled"),
+    "readback_tts_voice": ("output", "readback_tts_voice"),
+    "translation_provider": ("translation", "provider"),
+    "translation_deepl_auth_key": ("translation", "deepl_auth_key"),
+    "translation_deepl_api_url": ("translation", "deepl_api_url"),
+    "translation_libretranslate_url": ("translation", "libretranslate_url"),
+    "translation_libretranslate_api_key": ("translation", "libretranslate_api_key"),
+    "translation_mymemory_email": ("translation", "mymemory_email"),
+    "translation_mymemory_key": ("translation", "mymemory_key"),
     "prewarm_on_start": ("startup", "prewarm_on_start"),
     "prewarm_delay_s": ("startup", "prewarm_delay_s"),
     "log_level": ("logs", "level"),
     "status_file": ("runtime", "status_file"),
     "temp_dir": ("runtime", "temp_dir"),
+    "command_auth_token": ("runtime", "command_auth_token"),
+}
+
+_LEGACY_OPENCLAW_FLAT_FIELDS = {
+    "openclaw_command",
+    "openclaw_agent",
+    "openclaw_timeout_s",
+    "openclaw_retries",
 }
 
 
@@ -56,6 +70,7 @@ def migrate_config_data(raw: object) -> dict[str, object]:
 
     document = {str(key): value for key, value in raw.items()}
     document = _coerce_legacy_flat_shape(document)
+    document = _drop_legacy_openclaw_shape(document)
 
     schema_version = document.get("schema_version")
     if schema_version is None:
@@ -76,12 +91,14 @@ def _coerce_legacy_flat_shape(document: dict[str, object]) -> dict[str, object]:
         if key == "schema_version":
             grouped[key] = value
             continue
+        if key in _LEGACY_OPENCLAW_FLAT_FIELDS:
+            continue
         if key in {
             "bindings",
             "transcriber",
             "input",
             "output",
-            "openclaw",
+            "translation",
             "startup",
             "logs",
             "runtime",
@@ -101,3 +118,29 @@ def _coerce_legacy_flat_shape(document: dict[str, object]) -> dict[str, object]:
         section.setdefault(field_name, value)
 
     return grouped
+
+
+def _drop_legacy_openclaw_shape(document: dict[str, object]) -> dict[str, object]:
+    migrated = dict(document)
+    migrated.pop("openclaw", None)
+
+    profiles = migrated.get("profiles")
+    if isinstance(profiles, Mapping):
+        cleaned_profiles = {str(key): value for key, value in profiles.items()}
+        cleaned_profiles.pop("openclaw", None)
+        migrated["profiles"] = cleaned_profiles
+
+    dictionary = migrated.get("dictionary")
+    if isinstance(dictionary, list):
+        migrated_dictionary: list[object] = []
+        for entry in dictionary:
+            if not isinstance(entry, Mapping):
+                migrated_dictionary.append(entry)
+                continue
+            cleaned_entry = {str(key): value for key, value in entry.items()}
+            if str(cleaned_entry.get("scope", "")).strip().lower() == "openclaw":
+                cleaned_entry["scope"] = "default"
+            migrated_dictionary.append(cleaned_entry)
+        migrated["dictionary"] = migrated_dictionary
+
+    return migrated

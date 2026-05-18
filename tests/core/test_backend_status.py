@@ -61,12 +61,10 @@ class BackendStatusCollectionTests(unittest.TestCase):
         self.assertEqual(statuses["default"].backend_id, "sensevoice_fast")
         self.assertTrue(statuses["default"].available)
         self.assertIsNone(statuses["default"].reason)
-        self.assertEqual(statuses["openclaw"].backend_id, "funasr_enhanced")
-        self.assertTrue(statuses["openclaw"].available)
-        self.assertIsNone(statuses["openclaw"].reason)
 
     def test_unavailable_backend_reports_reason_string(self) -> None:
         config = _build_config()
+        config.profiles["default"] = "enhanced"
         subject = SenseVoiceTranscriber(
             config,
             backend_factories={
@@ -84,9 +82,9 @@ class BackendStatusCollectionTests(unittest.TestCase):
 
         statuses = collect_backend_statuses(subject)
 
-        self.assertEqual(statuses["openclaw"].backend_id, "funasr_enhanced")
-        self.assertFalse(statuses["openclaw"].available)
+        self.assertEqual(statuses["default"].backend_id, "funasr_enhanced")
+        self.assertFalse(statuses["default"].available)
         self.assertEqual(
-            statuses["openclaw"].reason,
+            statuses["default"].reason,
             "funasr package is not installed",
         )

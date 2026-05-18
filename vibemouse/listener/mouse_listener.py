@@ -44,7 +44,7 @@ class SideButtonListener:
         gesture_freeze_pointer: bool = True,
         gesture_restore_cursor: bool = True,
         system_integration: SystemIntegration | None = None,
-        rescan_interval_s: float = 2.0,
+        rescan_interval_s: float = 30.0,
     ) -> None:
         if gesture_trigger_button not in {"front", "rear", "right"}:
             raise ValueError(
@@ -222,7 +222,10 @@ class SideButtonListener:
                     return
                 now = time.monotonic()
                 if now >= next_rescan_at:
-                    return
+                    if self._input_interaction_active():
+                        next_rescan_at = now + self._rescan_interval_s
+                    else:
+                        return
 
                 timeout_candidates = [0.2, max(0.0, next_rescan_at - now)]
                 button_deadline = self._button_grab_deadline_monotonic
@@ -448,6 +451,15 @@ class SideButtonListener:
 
     def _is_gesture_trigger_button(self, button_label: str) -> bool:
         return button_label == self._gesture_trigger_button
+
+    def _input_interaction_active(self) -> bool:
+        with self._gesture_lock:
+            gesture_active = self._gesture_active
+        return (
+            gesture_active
+            or self._right_trigger_pressed
+            or self._button_grabbed_device is not None
+        )
 
     def _clear_right_trigger_state(self) -> None:
         self._right_trigger_pressed = False

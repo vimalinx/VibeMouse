@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import shlex
 import shutil
 import subprocess
 import sys
@@ -16,19 +15,16 @@ _PRESET_OVERRIDES: dict[str, dict[str, str]] = {
         "VIBEMOUSE_AUTO_PASTE": "true",
         "VIBEMOUSE_BUTTON_DEBOUNCE_MS": "220",
         "VIBEMOUSE_PREWARM_ON_START": "true",
-        "VIBEMOUSE_OPENCLAW_RETRIES": "1",
     },
     "fast": {
         "VIBEMOUSE_AUTO_PASTE": "true",
         "VIBEMOUSE_BUTTON_DEBOUNCE_MS": "120",
         "VIBEMOUSE_PREWARM_ON_START": "true",
-        "VIBEMOUSE_OPENCLAW_RETRIES": "2",
     },
     "low-resource": {
         "VIBEMOUSE_AUTO_PASTE": "false",
         "VIBEMOUSE_BUTTON_DEBOUNCE_MS": "250",
         "VIBEMOUSE_PREWARM_ON_START": "false",
-        "VIBEMOUSE_OPENCLAW_RETRIES": "0",
     },
 }
 
@@ -51,25 +47,19 @@ def configure_deploy_parser(parser: argparse.ArgumentParser) -> None:
         help="path to generated systemd user service file",
     )
     _ = parser.add_argument(
+        "--working-directory",
+        default=str(Path.cwd()),
+        help="working directory used by the generated service",
+    )
+    _ = parser.add_argument(
         "--log-file",
         default=str(Path.home() / ".local" / "state" / "vibemouse" / "service.log"),
         help="path to persistent service log file",
     )
     _ = parser.add_argument(
-        "--openclaw-command",
-        default=shutil.which("openclaw") or "openclaw",
-        help="OpenClaw command prefix",
-    )
-    _ = parser.add_argument(
-        "--openclaw-agent",
-        default="main",
-        help="OpenClaw agent id used for rear-button routing",
-    )
-    _ = parser.add_argument(
-        "--openclaw-retries",
-        type=int,
+        "--command-auth-token",
         default=None,
-        help="override retries for OpenClaw spawn failures",
+        help="optional token required by the local command server",
     )
     _ = parser.add_argument(
         "--exec-start",
@@ -94,33 +84,22 @@ def run_deploy(args: argparse.Namespace) -> int:
         print(f"Unknown preset: {preset}")
         return 1
 
-    openclaw_command = str(getattr(args, "openclaw_command", "openclaw")).strip()
-    if not openclaw_command:
-        print("--openclaw-command must not be empty")
-        return 1
-
-    openclaw_agent = str(getattr(args, "openclaw_agent", "main")).strip() or "main"
-
-    retries_override = cast(int | None, getattr(args, "openclaw_retries", None))
-
-    if retries_override is not None and retries_override < 0:
-        print("--openclaw-retries must be non-negative")
-        return 1
-
     env_path = Path(str(getattr(args, "env_file", ""))).expanduser()
     service_path = Path(str(getattr(args, "service_file", ""))).expanduser()
+    working_directory = Path(
+        str(getattr(args, "working_directory", ""))
+    ).expanduser()
     log_path = Path(str(getattr(args, "log_file", ""))).expanduser()
     exec_start = _resolve_exec_start(str(getattr(args, "exec_start", "") or ""))
 
     env_map = build_deploy_env(
         preset=preset,
-        openclaw_command=openclaw_command,
-        openclaw_agent=openclaw_agent,
-        openclaw_retries=retries_override,
+        command_auth_token=cast(str | None, getattr(args, "command_auth_token", None)),
     )
     env_content = render_env_file(env_map)
     service_content = render_service_file(
         env_file=env_path,
+        working_directory=working_directory,
         log_file=log_path,
         exec_start=exec_start,
     )
@@ -130,6 +109,7 @@ def run_deploy(args: argparse.Namespace) -> int:
         print(f"[DRY-RUN] would write {env_path}")
         print(f"[DRY-RUN] would write {service_path}")
         print(f"[DRY-RUN] preset={preset}")
+        print(f"[DRY-RUN] working_directory={working_directory}")
         print(f"[DRY-RUN] exec_start={exec_start}")
         return 0
 
@@ -154,23 +134,19 @@ def run_deploy(args: argparse.Namespace) -> int:
 def build_deploy_env(
     *,
     preset: str,
-    openclaw_command: str,
-    openclaw_agent: str,
-    openclaw_retries: int | None,
+    command_auth_token: str | None = None,
 ) -> dict[str, str]:
     base = {
         "VIBEMOUSE_BACKEND": "funasr_onnx",
         "VIBEMOUSE_DEVICE": "cpu",
         "VIBEMOUSE_FALLBACK_CPU": "true",
         "VIBEMOUSE_ENTER_MODE": "enter",
-        "VIBEMOUSE_OPENCLAW_COMMAND": openclaw_command,
-        "VIBEMOUSE_OPENCLAW_AGENT": openclaw_agent,
-        "VIBEMOUSE_OPENCLAW_TIMEOUT_S": "20.0",
         "VIBEMOUSE_STATUS_FILE": "%t/vibemouse-status.json",
     }
     base.update(_PRESET_OVERRIDES[preset])
-    if openclaw_retries is not None:
-        base["VIBEMOUSE_OPENCLAW_RETRIES"] = str(openclaw_retries)
+    normalized_token = (command_auth_token or "").strip()
+    if normalized_token:
+        base["VIBEMOUSE_COMMAND_AUTH_TOKEN"] = normalized_token
     return base
 
 
@@ -185,8 +161,15 @@ def render_env_file(env_map: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def render_service_file(*, env_file: Path, log_file: Path, exec_start: str) -> str:
+def render_service_file(
+    *,
+    env_file: Path,
+    working_directory: Path,
+    log_file: Path,
+    exec_start: str,
+) -> str:
     env_file_str = env_file.as_posix()
+    working_directory_str = working_directory.as_posix()
     log_file_str = log_file.as_posix()
     log_dir = log_file.parent.as_posix()
     lines = [
@@ -198,6 +181,7 @@ def render_service_file(*, env_file: Path, log_file: Path, exec_start: str) -> s
         "[Service]",
         "Type=simple",
         f"EnvironmentFile={env_file_str}",
+        f"WorkingDirectory={working_directory_str}",
         f"ExecStartPre=/usr/bin/mkdir -p {log_dir}",
         f"ExecStart={exec_start}",
         f"StandardOutput=append:{log_file_str}",
@@ -258,11 +242,3 @@ def _run_systemctl(args: list[str]) -> bool:
     else:
         print(f"systemctl {' '.join(args)} failed with code {proc.returncode}")
     return False
-
-
-def validate_openclaw_command(raw: str) -> bool:
-    try:
-        parts = shlex.split(raw)
-    except ValueError:
-        return False
-    return bool(parts)

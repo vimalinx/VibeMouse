@@ -24,9 +24,13 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(config.status_file.name, "vibemouse-status.json")
         self.assertEqual(
             config.profiles,
-            {"default": "fast", "openclaw": "enhanced"},
+            {"default": "fast"},
         )
         self.assertEqual(config.dictionary, ())
+        self.assertEqual(config.translation_provider, "auto")
+        self.assertFalse(config.translation_toast_enabled)
+        self.assertFalse(config.readback_tts_enabled)
+        self.assertEqual(config.readback_tts_voice, "en-US-EmmaMultilingualNeural")
 
     def test_json_config_values_are_loaded(self) -> None:
         with tempfile.TemporaryDirectory(prefix="vibemouse-config-") as tmp:
@@ -37,7 +41,6 @@ class ConfigStoreTests(unittest.TestCase):
                         "schema_version": 1,
                         "profiles": {
                             "default": "enhanced",
-                            "openclaw": "fast",
                         },
                         "dictionary": [
                             {
@@ -64,6 +67,13 @@ class ConfigStoreTests(unittest.TestCase):
                         "output": {
                             "auto_paste": True,
                             "enter_mode": "ctrl_enter",
+                            "translation_toast_enabled": False,
+                            "readback_tts_enabled": True,
+                            "readback_tts_voice": "en-US-EmmaMultilingualNeural",
+                        },
+                        "translation": {
+                            "provider": "libretranslate",
+                            "libretranslate_url": "http://127.0.0.1:5000",
                         },
                         "logs": {
                             "level": "error",
@@ -91,13 +101,18 @@ class ConfigStoreTests(unittest.TestCase):
         )
         self.assertEqual(
             config.profiles,
-            {"default": "enhanced", "openclaw": "fast"},
+            {"default": "enhanced"},
         )
         self.assertEqual(len(config.dictionary), 1)
         self.assertEqual(config.dictionary[0].term, "Codex")
         self.assertEqual(config.dictionary[0].phrases, ("codex", "code x"))
         self.assertTrue(config.auto_paste)
         self.assertEqual(config.enter_mode, "ctrl_enter")
+        self.assertFalse(config.translation_toast_enabled)
+        self.assertTrue(config.readback_tts_enabled)
+        self.assertEqual(config.readback_tts_voice, "en-US-EmmaMultilingualNeural")
+        self.assertEqual(config.translation_provider, "libretranslate")
+        self.assertEqual(config.translation_libretranslate_url, "http://127.0.0.1:5000")
         self.assertEqual(config.log_level, "ERROR")
         self.assertEqual(config.status_file.name, "status.json")
         self.assertEqual(config.temp_dir.name, "audio")
@@ -127,7 +142,7 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertTrue(config.auto_paste)
         self.assertEqual(config.log_level, "DEBUG")
 
-    def test_legacy_flat_config_shape_is_migrated(self) -> None:
+    def test_legacy_flat_config_shape_is_migrated_and_openclaw_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory(prefix="vibemouse-config-") as tmp:
             config_path = Path(tmp) / "config.json"
             config_path.write_text(
@@ -143,7 +158,40 @@ class ConfigStoreTests(unittest.TestCase):
             config = load_config(config_path, env={})
 
         self.assertEqual(config.sample_rate, 8000)
-        self.assertEqual(config.openclaw_command, "openclaw --profile ops")
+        self.assertFalse(hasattr(config, "openclaw_command"))
+
+    def test_legacy_openclaw_profile_and_scope_are_migrated_away(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vibemouse-config-") as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "profiles": {
+                            "default": "enhanced",
+                            "openclaw": "fast",
+                        },
+                        "openclaw": {
+                            "agent": "main",
+                        },
+                        "dictionary": [
+                            {
+                                "term": "Claude Code",
+                                "phrases": ["claude code"],
+                                "weight": 7,
+                                "scope": "openclaw",
+                                "enabled": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_config(config_path, env={})
+
+        self.assertEqual(config.profiles, {"default": "enhanced"})
+        self.assertEqual(config.dictionary[0].scope, "default")
 
     def test_save_document_writes_normalized_config(self) -> None:
         with tempfile.TemporaryDirectory(prefix="vibemouse-config-") as tmp:
@@ -161,7 +209,7 @@ class ConfigStoreTests(unittest.TestCase):
                             "term": "Codex",
                             "phrases": ["codex", "code x"],
                             "weight": 8,
-                            "scope": "openclaw",
+                            "scope": "default",
                             "enabled": True,
                         }
                     ],
@@ -181,7 +229,7 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(
             payload["profiles"],
-            {"default": "enhanced", "openclaw": "enhanced"},
+            {"default": "enhanced"},
         )
         self.assertEqual(
             payload["dictionary"],
@@ -189,7 +237,7 @@ class ConfigStoreTests(unittest.TestCase):
                 {
                     "enabled": True,
                     "phrases": ["codex", "code x"],
-                    "scope": "openclaw",
+                    "scope": "default",
                     "term": "Codex",
                     "weight": 8,
                 }
@@ -203,6 +251,7 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(payload["input"]["rear_button"], "x1")
         self.assertEqual(payload["input"]["record_hotkey_keycodes"], [10, 20, 30])
         self.assertIn("transcriber", payload)
+        self.assertIn("translation", payload)
         self.assertIn("runtime", payload)
 
     def test_invalid_binding_command_is_rejected(self) -> None:

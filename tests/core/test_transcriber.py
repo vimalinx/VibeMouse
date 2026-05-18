@@ -88,8 +88,9 @@ class SenseVoiceTranscriberRoutingTests(unittest.TestCase):
         self.assertEqual(subject.backend_in_use, "sensevoice_fast")
         self.assertEqual(subject.device_in_use, "cpu")
 
-    def test_router_uses_enhanced_backend_for_openclaw_profile(self) -> None:
+    def test_router_uses_enhanced_backend_for_default_profile_when_configured(self) -> None:
         config = _build_config()
+        config.profiles["default"] = "enhanced"
         fast_backend = _FakeBackend(
             backend_id="sensevoice_fast",
             device_in_use="cpu",
@@ -109,8 +110,8 @@ class SenseVoiceTranscriberRoutingTests(unittest.TestCase):
         )
 
         result = subject.transcribe(
-            Path("/tmp/openclaw.wav"),
-            output_target="openclaw",
+            Path("/tmp/enhanced.wav"),
+            output_target="default",
             hotwords=[("codex", 8), ("claude code", 7)],
         )
 
@@ -118,7 +119,7 @@ class SenseVoiceTranscriberRoutingTests(unittest.TestCase):
         self.assertEqual(fast_backend.calls, [])
         self.assertEqual(
             enhanced_backend.calls,
-            [(Path("/tmp/openclaw.wav"), [("codex", 8), ("claude code", 7)])],
+            [(Path("/tmp/enhanced.wav"), [("codex", 8), ("claude code", 7)])],
         )
         self.assertEqual(subject.profile_in_use, "enhanced")
         self.assertEqual(subject.backend_in_use, "funasr_enhanced")
@@ -126,6 +127,7 @@ class SenseVoiceTranscriberRoutingTests(unittest.TestCase):
 
     def test_router_reports_unavailable_backend_without_silent_downgrade(self) -> None:
         config = _build_config()
+        config.profiles["default"] = "enhanced"
         fast_backend = _FakeBackend(
             backend_id="sensevoice_fast",
             device_in_use="cpu",
@@ -147,8 +149,8 @@ class SenseVoiceTranscriberRoutingTests(unittest.TestCase):
 
         with self.assertRaises(BackendUnavailableError) as context:
             subject.transcribe(
-                Path("/tmp/openclaw.wav"),
-                output_target="openclaw",
+                Path("/tmp/enhanced.wav"),
+                output_target="default",
                 hotwords=[("codex", 8)],
             )
 

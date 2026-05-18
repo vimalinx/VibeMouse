@@ -1,2 +1,2 @@
 {"audio_path":"samples/default-codex.wav","output_target":"default","reference_text":"ask Codex to review this patch","expected_terms":["Codex"],"note":"Example daily typing sample"}
-{"audio_path":"samples/openclaw-claude-code.wav","output_target":"openclaw","reference_text":"ask Claude Code to review this patch","expected_terms":["Claude Code"],"note":"Example assistant-facing sample"}
+{"audio_path":"samples/default-claude-code.wav","output_target":"default","reference_text":"ask Claude Code to review this patch","expected_terms":["Claude Code"],"note":"Example assistant-facing sample"}

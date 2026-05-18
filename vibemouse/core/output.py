@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import importlib
 import json
-import shlex
 import subprocess
 import time
-from dataclasses import dataclass
 from typing import Protocol, cast
 
 import pyperclip
@@ -25,10 +23,6 @@ class TextOutput:
         self,
         *,
         system_integration: SystemIntegration | None = None,
-        openclaw_command: str = "openclaw",
-        openclaw_agent: str | None = None,
-        openclaw_timeout_s: float = 20.0,
-        openclaw_retries: int = 0,
     ) -> None:
         try:
             keyboard_module = importlib.import_module("pynput.keyboard")
@@ -57,10 +51,6 @@ class TextOutput:
             else create_system_integration()
         )
         self._hyprland_session: bool = self._system_integration.is_hyprland
-        self._openclaw_command: str = openclaw_command
-        self._openclaw_agent: str | None = openclaw_agent
-        self._openclaw_timeout_s: float = max(0.5, openclaw_timeout_s)
-        self._openclaw_retries: int = max(0, int(openclaw_retries))
 
     def send_enter(self, *, mode: str = "enter") -> None:
         normalized = mode.strip().lower()
@@ -98,66 +88,6 @@ class TextOutput:
             except Exception:
                 return "clipboard"
         return "clipboard"
-
-    def send_to_openclaw(self, text: str) -> str:
-        return self.send_to_openclaw_result(text).route
-
-    def send_to_openclaw_result(self, text: str) -> "OpenClawDispatchResult":
-        normalized = text.strip()
-        if not normalized:
-            return OpenClawDispatchResult(route="empty", reason="empty_text")
-
-        command = self._build_openclaw_command(normalized)
-        if command is None:
-            pyperclip.copy(normalized)
-            return OpenClawDispatchResult(route="clipboard", reason="invalid_command")
-
-        attempts = max(1, int(getattr(self, "_openclaw_retries", 0)) + 1)
-        last_reason = "spawn_error"
-        for attempt in range(attempts):
-            try:
-                _ = subprocess.Popen(
-                    command,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                if attempt == 0:
-                    return OpenClawDispatchResult(
-                        route="openclaw",
-                        reason="dispatched",
-                    )
-                return OpenClawDispatchResult(
-                    route="openclaw",
-                    reason=f"dispatched_after_retry_{attempt}",
-                )
-            except OSError as error:
-                last_reason = f"spawn_error:{error.__class__.__name__}"
-
-        pyperclip.copy(normalized)
-        return OpenClawDispatchResult(route="clipboard", reason=last_reason)
-
-    def _build_openclaw_command(self, message: str) -> list[str] | None:
-        raw_command = str(getattr(self, "_openclaw_command", "openclaw")).strip()
-        if not raw_command:
-            return None
-
-        try:
-            parts = shlex.split(raw_command)
-        except ValueError:
-            return None
-
-        if not parts:
-            return None
-
-        command = [*parts, "agent", "--message", message, "--json"]
-        agent = getattr(self, "_openclaw_agent", None)
-        if isinstance(agent, str):
-            normalized_agent = agent.strip()
-            if normalized_agent:
-                command.extend(["--agent", normalized_agent])
-        return command
 
     def _paste_clipboard(self) -> None:
         terminal_active = self._is_hyprland_terminal_active()
@@ -448,9 +378,3 @@ class _KeyHolder(Protocol):
     ctrl: object
     shift: object
     insert: object
-
-
-@dataclass(frozen=True)
-class OpenClawDispatchResult:
-    route: str
-    reason: str

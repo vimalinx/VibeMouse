@@ -6,7 +6,7 @@ from typing import Protocol
 from vibemouse.core.backends import BackendStatus
 
 
-DEFAULT_STATUS_TARGETS = ("default", "openclaw")
+DEFAULT_STATUS_TARGETS = ("default",)
 
 
 class _BackendStatusReader(Protocol):

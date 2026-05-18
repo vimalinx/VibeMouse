@@ -28,7 +28,12 @@ from vibemouse.core.commands import (
 from vibemouse.config import AppConfig, load_config, write_status
 from vibemouse.core.dictionary import DictionaryService
 from vibemouse.core.output import TextOutput
+from vibemouse.core.readback_tts import EdgeTTSReadback
 from vibemouse.core.transcriber import SenseVoiceTranscriber
+from vibemouse.core.translation_toast import (
+    contains_chinese,
+    translate_text_to_english,
+)
 from vibemouse.ipc.server import AgentCommandServer, IPCServer
 from vibemouse.listener.keyboard_listener import KeyboardHotkeyListener
 from vibemouse.listener.mouse_listener import SideButtonListener
@@ -39,7 +44,7 @@ from vibemouse.platform.system_integration import (
 
 
 ListenerMode = Literal["inline", "child", "off"]
-TranscriptionTarget = Literal["default", "openclaw"]
+TranscriptionTarget = Literal["default"]
 _LOG = logging.getLogger(__name__)
 
 
@@ -94,7 +99,7 @@ class VoiceMouseApp:
             + f"prewarm_on_start={self._config.prewarm_on_start}, "
             + f"prewarm_delay_s={self._config.prewarm_delay_s}, "
             + f"listener_mode={self._listener_mode}. "
-            + "Press side-front to start/stop recording. While recording, side-rear sends transcript to OpenClaw; otherwise side-rear sends Enter."
+            + "Press side-front to start/stop recording. While recording, side-rear stops and outputs the transcript; otherwise side-rear sends Enter."
         )
         self._maybe_prewarm_transcriber()
         try:
@@ -236,10 +241,10 @@ class VoiceMouseApp:
     def _trigger_secondary_action(self) -> None:
         if self._recorder.is_recording:
             self._stop_recording_for_output(
-                output_target="openclaw",
+                output_target="default",
                 error_prefix="Failed to stop recording from secondary action",
                 success_message=(
-                    "Recording stopped by secondary action, sending transcript to OpenClaw"
+                    "Recording stopped by secondary action, outputting transcript"
                 ),
             )
             return
@@ -251,9 +256,9 @@ class VoiceMouseApp:
             return
 
         self._stop_recording_for_output(
-            output_target="openclaw",
+            output_target="default",
             error_prefix="Failed to stop recording from submit command",
-            success_message="Recording submit command received, sending transcript to OpenClaw",
+            success_message="Recording submit command received, outputting transcript",
         )
 
     def _send_enter_command(self, *, force_when_disabled: bool) -> None:
@@ -365,9 +370,11 @@ class VoiceMouseApp:
     ) -> None:
         current = threading.current_thread()
         try:
+            status_finalized = False
             _LOG.info(
                 "Recording stopped (%.1fs), transcribing...", recording.duration_s
             )
+            self._set_processing_status()
             hotwords = self._dictionary_service.hotword_phrases(output_target)
             with self._transcribe_lock:
                 text = self._transcriber.transcribe(
@@ -378,51 +385,25 @@ class VoiceMouseApp:
 
             if not text:
                 _LOG.info("No speech recognized")
+                self._set_idle_status_if_not_recording()
+                status_finalized = True
                 return
 
             text = self._dictionary_service.normalize(text, scope=output_target)
 
-            if output_target == "openclaw":
-                dispatch = self._output.send_to_openclaw_result(text)
-                route = dispatch.route
-                dispatch_reason = dispatch.reason
-            else:
-                route = self._output.inject_or_clipboard(
-                    text,
-                    auto_paste=self._config.auto_paste,
-                )
-                dispatch_reason = "n/a"
+            route = self._output.inject_or_clipboard(
+                text,
+                auto_paste=self._config.auto_paste,
+            )
+
+            self._show_translation_toast(text)
+            self._speak_readback(text)
+            self._set_idle_status_if_not_recording(last_transcript=text)
+            status_finalized = True
 
             device = self._transcriber.device_in_use
             backend = self._transcriber.backend_in_use
             profile = getattr(self._transcriber, "profile_in_use", "unknown")
-
-            if output_target == "openclaw":
-                if route == "openclaw":
-                    _LOG.info(
-                        "Transcribed with profile=%s backend=%s on %s, sent to OpenClaw (%s)",
-                        profile,
-                        backend,
-                        device,
-                        dispatch_reason,
-                    )
-                elif route == "clipboard":
-                    _LOG.warning(
-                        "Transcribed with profile=%s backend=%s on %s, OpenClaw unavailable so copied to clipboard (%s)",
-                        profile,
-                        backend,
-                        device,
-                        dispatch_reason,
-                    )
-                else:
-                    _LOG.warning(
-                        "Transcribed with profile=%s backend=%s on %s, but OpenClaw output was empty (%s)",
-                        profile,
-                        backend,
-                        device,
-                        dispatch_reason,
-                    )
-                return
 
             if route == "typed":
                 _LOG.info(
@@ -458,9 +439,15 @@ class VoiceMouseApp:
                 output_target,
                 error,
             )
+            self._set_idle_status_if_not_recording()
+            status_finalized = True
         except Exception as error:
             _LOG.exception("Transcription failed: %s", error)
+            self._set_idle_status_if_not_recording()
+            status_finalized = True
         finally:
+            if not status_finalized:
+                self._set_idle_status_if_not_recording()
             self._safe_unlink(recording.path)
             with self._workers_lock:
                 self._workers.discard(current)
@@ -482,6 +469,42 @@ class VoiceMouseApp:
             daemon=True,
         )
         worker.start()
+
+    def _show_translation_toast(self, text: str) -> None:
+        # System translation notifications are intentionally disabled for now.
+        _ = text
+        return
+
+    def _speak_readback(self, text: str) -> None:
+        speaker = getattr(self, "_readback_tts", None)
+        if speaker is None:
+            return
+        normalized = text.strip()
+        if not normalized:
+            return
+        if not contains_chinese(normalized):
+            return
+        try:
+            translated = translate_text_to_english(
+                normalized,
+                provider=self._config.translation_provider,
+                deepl_auth_key=self._config.translation_deepl_auth_key,
+                deepl_api_url=self._config.translation_deepl_api_url,
+                libretranslate_url=self._config.translation_libretranslate_url,
+                libretranslate_api_key=self._config.translation_libretranslate_api_key,
+                mymemory_email=self._config.translation_mymemory_email,
+                mymemory_key=self._config.translation_mymemory_key,
+            )
+        except Exception as error:
+            _LOG.warning("Failed to translate transcript for readback: %s", error)
+            return
+        if not translated:
+            _LOG.warning("Transcript readback skipped: English translation unavailable")
+            return
+        try:
+            speaker.speak_async(translated)
+        except Exception as error:
+            _LOG.warning("Failed to start transcript readback: %s", error)
 
     def _prewarm_transcriber(self, delay_s: float = 0.0) -> None:
         if delay_s > 0:
@@ -539,10 +562,11 @@ class VoiceMouseApp:
         self._dictionary_service = DictionaryService(config.dictionary)
         self._output = TextOutput(
             system_integration=self._system_integration,
-            openclaw_command=config.openclaw_command,
-            openclaw_agent=config.openclaw_agent,
-            openclaw_timeout_s=config.openclaw_timeout_s,
-            openclaw_retries=config.openclaw_retries,
+        )
+        self._readback_tts = EdgeTTSReadback(
+            enabled=config.readback_tts_enabled,
+            voice=config.readback_tts_voice,
+            temp_dir=config.temp_dir / "readback-tts",
         )
         self._listener = None
         self._keyboard_listener = None
@@ -577,7 +601,10 @@ class VoiceMouseApp:
     def _start_command_server(self) -> None:
         if self._command_server is not None:
             return
-        self._command_server = AgentCommandServer(on_command=self._execute_command)
+        self._command_server = AgentCommandServer(
+            on_command=self._execute_command,
+            auth_token=self._config.command_auth_token,
+        )
         self._command_server.start()
         _LOG.info("Agent command server listening on 127.0.0.1:%s", self._command_server.port)
 
@@ -645,6 +672,7 @@ class VoiceMouseApp:
         is_recording: bool,
         *,
         listener_mode: ListenerMode | None = None,
+        last_transcript: str | None = None,
     ) -> None:
         mode = (
             listener_mode
@@ -656,6 +684,8 @@ class VoiceMouseApp:
             "state": "recording" if is_recording else "idle",
             "listener_mode": mode,
         }
+        if last_transcript is not None:
+            payload["last_transcript"] = last_transcript
         command_server = getattr(self, "_command_server", None)
         if command_server is not None and getattr(command_server, "port", 0):
             payload["ipc_port"] = int(command_server.port)
@@ -663,3 +693,29 @@ class VoiceMouseApp:
             write_status(self._config.status_file, payload)
         except Exception:
             return
+
+    def _set_processing_status(self) -> None:
+        payload: dict[str, object] = {
+            "recording": False,
+            "state": "processing",
+            "listener_mode": getattr(self, "_listener_mode", "inline"),
+        }
+        command_server = getattr(self, "_command_server", None)
+        if command_server is not None and getattr(command_server, "port", 0):
+            payload["ipc_port"] = int(command_server.port)
+        try:
+            write_status(self._config.status_file, payload)
+        except Exception:
+            return
+
+    def _set_idle_status_if_not_recording(
+        self,
+        *,
+        last_transcript: str | None = None,
+    ) -> None:
+        try:
+            if self._recorder.is_recording:
+                return
+        except Exception:
+            return
+        self._set_recording_status(False, last_transcript=last_transcript)

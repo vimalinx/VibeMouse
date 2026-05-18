@@ -171,7 +171,7 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         self.assertEqual(status_values, [False])
         self.assertEqual(worker_calls, [(recording, "default")])
 
-    def test_rear_press_stops_recording_and_routes_to_openclaw(self) -> None:
+    def test_rear_press_stops_recording_and_outputs_default_transcript(self) -> None:
         subject = self._make_subject()
         recording = SimpleNamespace(duration_s=1.2, path=Path("/tmp/voice.wav"))
         setattr(
@@ -202,7 +202,7 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         on_rear()
 
         self.assertEqual(status_values, [False])
-        self.assertEqual(worker_calls, [(recording, "openclaw")])
+        self.assertEqual(worker_calls, [(recording, "default")])
         self.assertEqual(send_enter_calls, [])
 
     def test_rear_press_sends_enter_when_idle(self) -> None:
@@ -260,13 +260,13 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
                 on_rear()
 
                 if is_recording:
-                    self.assertEqual(worker_calls, [(recording, "openclaw")])
+                    self.assertEqual(worker_calls, [(recording, "default")])
                     self.assertEqual(send_enter_calls, [])
                 else:
                     self.assertEqual(worker_calls, [])
                     self.assertEqual(send_enter_calls, ["enter"])
 
-    def test_recording_submit_press_stops_recording_and_routes_to_openclaw(self) -> None:
+    def test_recording_submit_press_stops_recording_and_outputs_default_transcript(self) -> None:
         subject = self._make_subject()
         recording = SimpleNamespace(duration_s=0.7, path=Path("/tmp/submit.wav"))
         setattr(
@@ -299,7 +299,7 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         on_submit()
 
         self.assertEqual(status_values, [False])
-        self.assertEqual(worker_calls, [(recording, "openclaw")])
+        self.assertEqual(worker_calls, [(recording, "default")])
         self.assertEqual(send_enter_calls, [])
 
     def test_recording_submit_press_is_ignored_when_idle(self) -> None:
@@ -371,7 +371,7 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
 
         self.assertTrue(stop_event.is_set())
 
-    def test_transcribe_and_output_openclaw_uses_openclaw_sender(self) -> None:
+    def test_transcribe_and_output_default_writes_processing_and_idle_status(self) -> None:
         subject = self._make_subject()
         recording = SimpleNamespace(duration_s=1.0, path=Path("/tmp/transcribe.wav"))
         transcribe_calls: list[tuple[Path, str, list[tuple[str, int]]]] = []
@@ -392,46 +392,71 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
             "_dictionary_service",
             SimpleNamespace(
                 hotword_phrases=lambda scope: [("codex", 8)]
-                if scope == "openclaw"
+                if scope == "default"
                 else [],
                 normalize=lambda text, *, scope: "hello world",
             ),
         )
 
-        openclaw_calls: list[str] = []
         inject_calls: list[tuple[str, bool]] = []
+        toast_calls: list[str] = []
+        readback_calls: list[str] = []
         setattr(
             subject,
             "_output",
             SimpleNamespace(
-                send_to_openclaw_result=lambda text: openclaw_calls.append(text)
-                or SimpleNamespace(route="openclaw", reason="dispatched"),
                 inject_or_clipboard=lambda text, auto_paste: inject_calls.append(
                     (text, auto_paste)
                 )
                 or "typed",
             ),
         )
-        setattr(subject, "_config", SimpleNamespace(auto_paste=True))
-        setattr(subject, "_transcribe_lock", threading.Lock())
-        setattr(subject, "_workers_lock", threading.Lock())
-        setattr(subject, "_workers", set())
+        setattr(subject, "_show_translation_toast", lambda text: toast_calls.append(text))
+        setattr(subject, "_speak_readback", lambda text: readback_calls.append(text))
+        with tempfile.TemporaryDirectory(prefix="vibemouse-status-") as tmp:
+            status_file = Path(tmp) / "status.json"
+            setattr(
+                subject,
+                "_config",
+                SimpleNamespace(auto_paste=True, status_file=status_file),
+            )
+            setattr(subject, "_listener_mode", "inline")
+            setattr(subject, "_command_server", None)
+            setattr(subject, "_recorder", SimpleNamespace(is_recording=False))
+            setattr(subject, "_transcribe_lock", threading.Lock())
+            setattr(subject, "_workers_lock", threading.Lock())
+            setattr(subject, "_workers", set())
 
-        removed_paths: list[Path] = []
-        setattr(subject, "_safe_unlink", lambda path: removed_paths.append(path))
+            removed_paths: list[Path] = []
+            setattr(subject, "_safe_unlink", lambda path: removed_paths.append(path))
 
-        transcribe_and_output = cast(
-            Callable[[object, str], None],
-            getattr(subject, "_transcribe_and_output"),
-        )
-        transcribe_and_output(recording, "openclaw")
+            transcribe_and_output = cast(
+                Callable[[object, str], None],
+                getattr(subject, "_transcribe_and_output"),
+            )
+            transcribe_and_output(recording, "default")
+
+            payload = cast(
+                dict[str, object],
+                json.loads(status_file.read_text(encoding="utf-8")),
+            )
 
         self.assertEqual(
-            transcribe_calls,
-            [(Path("/tmp/transcribe.wav"), "openclaw", [("codex", 8)])],
+            payload,
+            {
+                "last_transcript": "hello world",
+                "listener_mode": "inline",
+                "recording": False,
+                "state": "idle",
+            },
         )
-        self.assertEqual(openclaw_calls, ["hello world"])
-        self.assertEqual(inject_calls, [])
+        self.assertEqual(
+            transcribe_calls,
+            [(Path("/tmp/transcribe.wav"), "default", [("codex", 8)])],
+        )
+        self.assertEqual(toast_calls, ["hello world"])
+        self.assertEqual(readback_calls, ["hello world"])
+        self.assertEqual(inject_calls, [("hello world", True)])
         self.assertEqual(removed_paths, [Path("/tmp/transcribe.wav")])
 
     def test_transcribe_and_output_default_normalizes_text_before_local_output(self) -> None:
@@ -462,19 +487,20 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         )
 
         inject_calls: list[tuple[str, bool]] = []
+        toast_calls: list[str] = []
+        readback_calls: list[str] = []
         setattr(
             subject,
             "_output",
             SimpleNamespace(
-                send_to_openclaw_result=lambda _text: SimpleNamespace(
-                    route="openclaw", reason="dispatched"
-                ),
                 inject_or_clipboard=lambda text, auto_paste: inject_calls.append(
                     (text, auto_paste)
                 )
                 or "typed",
             ),
         )
+        setattr(subject, "_show_translation_toast", lambda text: toast_calls.append(text))
+        setattr(subject, "_speak_readback", lambda text: readback_calls.append(text))
         setattr(subject, "_config", SimpleNamespace(auto_paste=True))
         setattr(subject, "_transcribe_lock", threading.Lock())
         setattr(subject, "_workers_lock", threading.Lock())
@@ -496,6 +522,78 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
             [("please ask code x to review", "default")],
         )
         self.assertEqual(inject_calls, [("please ask Codex to review", True)])
+        self.assertEqual(toast_calls, ["please ask Codex to review"])
+        self.assertEqual(readback_calls, ["please ask Codex to review"])
+
+    def test_show_translation_toast_is_disabled(self) -> None:
+        subject = self._make_subject()
+        setattr(subject, "_config", SimpleNamespace(translation_toast_enabled=True))
+
+        with patch("vibemouse.app.translate_text_to_english") as translate_mock:
+            show_translation_toast = cast(
+                Callable[[str], None],
+                getattr(subject, "_show_translation_toast"),
+            )
+            show_translation_toast("你好，世界。")
+
+        translate_mock.assert_not_called()
+
+    def test_speak_readback_uses_configured_speaker(self) -> None:
+        subject = self._make_subject()
+        calls: list[str] = []
+        setattr(
+            subject,
+            "_config",
+            SimpleNamespace(
+                translation_provider="auto",
+                translation_deepl_auth_key=None,
+                translation_deepl_api_url=None,
+                translation_libretranslate_url=None,
+                translation_libretranslate_api_key=None,
+                translation_mymemory_email=None,
+                translation_mymemory_key=None,
+            ),
+        )
+        setattr(subject, "_readback_tts", SimpleNamespace(speak_async=lambda text: calls.append(text)))
+
+        speak_readback = cast(
+            Callable[[str], None],
+            getattr(subject, "_speak_readback"),
+        )
+        speak_readback("hello world")
+
+        self.assertEqual(calls, [])
+
+    def test_speak_readback_translates_chinese_before_speaking(self) -> None:
+        subject = self._make_subject()
+        calls: list[str] = []
+        setattr(
+            subject,
+            "_config",
+            SimpleNamespace(
+                translation_provider="auto",
+                translation_deepl_auth_key=None,
+                translation_deepl_api_url=None,
+                translation_libretranslate_url=None,
+                translation_libretranslate_api_key=None,
+                translation_mymemory_email=None,
+                translation_mymemory_key=None,
+            ),
+        )
+        setattr(subject, "_readback_tts", SimpleNamespace(speak_async=lambda text: calls.append(text)))
+
+        with patch(
+            "vibemouse.core.app.translate_text_to_english",
+            return_value="Hello, world.",
+        ) as translate_mock:
+            speak_readback = cast(
+                Callable[[str], None],
+                getattr(subject, "_speak_readback"),
+            )
+            speak_readback("你好，世界。")
+
+        translate_mock.assert_called_once()
+        self.assertEqual(calls, ["Hello, world."])
 
     def test_transcribe_and_output_logs_explicit_backend_unavailable_error(self) -> None:
         subject = self._make_subject()
@@ -524,9 +622,6 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
             subject,
             "_output",
             SimpleNamespace(
-                send_to_openclaw_result=lambda _text: SimpleNamespace(
-                    route="openclaw", reason="ok"
-                ),
                 inject_or_clipboard=lambda _text, auto_paste: "typed",
             ),
         )
@@ -542,7 +637,7 @@ class VoiceMouseAppButtonBehaviorTests(unittest.TestCase):
         )
 
         with self.assertLogs("vibemouse.core.app", level="ERROR") as captured:
-            transcribe_and_output(recording, "openclaw")
+            transcribe_and_output(recording, "default")
 
         self.assertTrue(
             any(
@@ -728,9 +823,6 @@ class VoiceMouseAppLoggingTests(unittest.TestCase):
             subject,
             "_output",
             SimpleNamespace(
-                send_to_openclaw_result=lambda _text: SimpleNamespace(
-                    route="openclaw", reason="ok"
-                ),
                 inject_or_clipboard=lambda _text, auto_paste: "typed",
             ),
         )
