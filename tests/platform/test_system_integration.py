@@ -14,6 +14,7 @@ from vibemouse.system_integration import (
     is_terminal_window_payload,
     probe_send_enter_via_atspi,
     probe_text_input_focus_via_atspi,
+    show_system_notification,
 )
 
 
@@ -200,3 +201,34 @@ class HyprlandSystemIntegrationTests(unittest.TestCase):
 
     def test_probe_send_enter_without_module_returns_false(self) -> None:
         self.assertFalse(probe_send_enter_via_atspi(atspi_module=None, lazy_load=False))
+
+    def test_show_system_notification_uses_notify_send_on_linux(self) -> None:
+        with patch(
+            "vibemouse.system_integration.subprocess.run",
+            return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ) as run_mock:
+            shown = show_system_notification(
+                "English Translation",
+                "Hello, world.",
+                platform_name="linux",
+            )
+
+        self.assertTrue(shown)
+        self.assertEqual(
+            run_mock.call_args.args[0],
+            ["notify-send", "-t", "2000", "English Translation", "Hello, world."],
+        )
+
+    def test_show_system_notification_uses_osascript_on_macos(self) -> None:
+        with patch(
+            "vibemouse.system_integration.subprocess.run",
+            return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ) as run_mock:
+            shown = show_system_notification(
+                "English Translation",
+                "Hello, world.",
+                platform_name="darwin",
+            )
+
+        self.assertTrue(shown)
+        self.assertEqual(run_mock.call_args.args[0][:3], ["osascript", "-l", "JavaScript"])

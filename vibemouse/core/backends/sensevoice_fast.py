@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import re
 from pathlib import Path
 from threading import Lock
@@ -137,6 +138,9 @@ class SenseVoiceFastBackend:
             canonical_model = "iic/SenseVoiceSmall-onnx"
 
         if canonical_model.startswith("iic/"):
+            cached_model_dir = self._resolve_cached_modelscope_dir(canonical_model)
+            if cached_model_dir is not None:
+                return cached_model_dir
             return self._download_modelscope_snapshot(canonical_model)
 
         path_candidate = Path(canonical_model)
@@ -155,6 +159,22 @@ class SenseVoiceFastBackend:
         return (model_dir / "model_quant.onnx").exists() or (
             model_dir / "model.onnx"
         ).exists()
+
+    @staticmethod
+    def _resolve_cached_modelscope_dir(model_id: str) -> Path | None:
+        owner, _, repo = model_id.partition("/")
+        if not owner or not repo:
+            return None
+
+        cache_home = Path(
+            os.getenv("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+        ).expanduser()
+        candidate = cache_home / "modelscope" / "hub" / "models" / owner / repo
+        if not candidate.exists():
+            return None
+        if not SenseVoiceFastBackend._contains_onnx_model(candidate):
+            return None
+        return candidate
 
     @staticmethod
     def _download_modelscope_snapshot(model_id: str) -> Path:

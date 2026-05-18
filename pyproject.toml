@@ -26,7 +26,6 @@ dependencies = [
   "funasr-onnx>=0.4.1",
   "onnxruntime>=1.24.0",
   "modelscope>=1.18.0",
-  "torch>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +41,11 @@ dev = [
 ]
 pt = [
   "funasr>=1.2.6",
+  "torch>=2.0.0",
+]
+translation = [
+  "transformers>=4.46.0",
+  "torch>=2.0.0",
 ]
 npu = [
   "openvino>=2026.0.0",

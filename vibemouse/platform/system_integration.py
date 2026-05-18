@@ -149,6 +149,57 @@ class NoopSystemIntegration:
         return ()
 
 
+def show_system_notification(
+    title: str,
+    message: str,
+    *,
+    platform_name: str | None = None,
+    timeout_s: float = 2.0,
+) -> bool:
+    normalized_title = title.strip()
+    normalized_message = message.strip()
+    if not normalized_title or not normalized_message:
+        return False
+
+    current_platform = platform_name if platform_name is not None else sys.platform
+
+    if current_platform == "darwin":
+        script = (
+            "const app = Application.currentApplication();\n"
+            "app.includeStandardAdditions = true;\n"
+            + "app.displayNotification("
+            + json.dumps(normalized_message)
+            + ", {withTitle: "
+            + json.dumps(normalized_title)
+            + "});\n"
+        )
+        command = ["osascript", "-l", "JavaScript", "-e", script]
+    elif current_platform.startswith("linux"):
+        timeout_ms = max(1000, int(timeout_s * 1000))
+        command = [
+            "notify-send",
+            "-t",
+            str(timeout_ms),
+            normalized_title,
+            normalized_message,
+        ]
+    else:
+        return False
+
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_s,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+    return proc.returncode == 0
+
+
 class HyprlandSystemIntegration:
     @property
     def is_hyprland(self) -> bool:
