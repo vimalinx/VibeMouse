@@ -97,10 +97,12 @@ class AgentCommandServer:
         on_command: Callable[[str], None],
         host: str = "127.0.0.1",
         port: int = 0,
+        auth_token: str | None = None,
     ) -> None:
         self._on_command = on_command
         self._host = host
         self._requested_port = port
+        self._auth_token = auth_token.strip() if isinstance(auth_token, str) else None
         self._listener: socket.socket | None = None
         self._port = 0
         self._running = False
@@ -192,6 +194,9 @@ class AgentCommandServer:
                 msg = parse_message(raw)
                 if msg.get("type") != "command":
                     _LOG.debug("Ignoring non-command message on command server")
+                    continue
+                if self._auth_token and msg.get("token") != self._auth_token:
+                    _LOG.warning("Rejected unauthenticated command server message")
                     continue
                 command_name = msg.get("command", "")
                 self._on_command(command_name)

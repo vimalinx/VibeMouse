@@ -81,7 +81,7 @@ def binary_writer(stream: Any) -> Any:
 # --- Message types ---
 
 EventMessage = dict[str, Any]  # {"type":"event","event":"mouse.side_front.press"}
-CommandMessage = dict[str, Any]  # {"type":"command","command":"shutdown"}
+CommandMessage = dict[str, Any]  # {"type":"command","command":"shutdown","token":"..."}
 Message = EventMessage | CommandMessage
 
 
@@ -97,7 +97,13 @@ def parse_message(raw: dict[str, Any]) -> Message:
         command = raw.get("command")
         if not isinstance(command, str):
             raise ValueError("command message must have string 'command' field")
-        return {"type": "command", "command": command}
+        message: CommandMessage = {"type": "command", "command": command}
+        token = raw.get("token")
+        if token is not None:
+            if not isinstance(token, str):
+                raise ValueError("command message token must be a string when present")
+            message["token"] = token
+        return message
     raise ValueError(f"Unknown message type: {msg_type!r}")
 
 
@@ -111,6 +117,13 @@ def make_event_message(event_name: str) -> EventMessage:
     return {"type": "event", "event": event_name}
 
 
-def make_command_message(command_name: str) -> CommandMessage:
+def make_command_message(
+    command_name: str,
+    *,
+    auth_token: str | None = None,
+) -> CommandMessage:
     """Create a command message."""
-    return {"type": "command", "command": command_name}
+    message: CommandMessage = {"type": "command", "command": command_name}
+    if auth_token:
+        message["token"] = auth_token
+    return message

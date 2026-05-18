@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 from collections.abc import Callable, Mapping
 from http import HTTPStatus
@@ -9,10 +10,11 @@ from mimetypes import guess_type
 from pathlib import Path
 from typing import Protocol
 
-from vibemouse.config import AppConfig, ConfigStore, load_config
+from vibemouse.config import AppConfig, ConfigStore, StatusStore, load_config
 from vibemouse.core.backend_status import collect_backend_statuses
 from vibemouse.core.backends import BackendStatus
 from vibemouse.core.transcriber import SenseVoiceTranscriber
+from vibemouse.ipc.messages import make_command_message, write_lpjson_frame
 
 
 class _BackendStatusReader(Protocol):
@@ -89,6 +91,52 @@ class SettingsServer:
         self._store.save_document(document)
         return self._store.load_document()
 
+    def request_daemon_reload(self) -> dict[str, object]:
+        try:
+            config = load_config(self._config_path)
+        except Exception as error:
+            return {
+                "reloaded": False,
+                "reason": f"config_unreadable:{error.__class__.__name__}",
+            }
+        try:
+            status = StatusStore(config.status_file).read_document()
+        except ValueError as error:
+            return {
+                "reloaded": False,
+                "reason": f"status_unreadable:{error.__class__.__name__}",
+            }
+        raw_port = status.get("ipc_port")
+        if not isinstance(raw_port, int) or raw_port <= 0:
+            return {
+                "reloaded": False,
+                "reason": "daemon_not_running",
+            }
+
+        try:
+            with socket.create_connection(("127.0.0.1", raw_port), timeout=1.5) as conn:
+                stream = conn.makefile("rwb")
+                try:
+                    write_lpjson_frame(
+                        stream,
+                        make_command_message(
+                            "reload_config",
+                            auth_token=config.command_auth_token,
+                        ),
+                    )
+                finally:
+                    stream.close()
+        except OSError as error:
+            return {
+                "reloaded": False,
+                "reason": f"reload_failed:{error.__class__.__name__}",
+            }
+
+        return {
+            "reloaded": True,
+            "reason": "reload_requested",
+        }
+
     def get_backend_status_payload(self) -> dict[str, dict[str, object]]:
         config = load_config(self._config_path, env={})
         transcriber = self._transcriber_factory(config)
@@ -128,9 +176,16 @@ def _build_handler(settings_server: SettingsServer) -> type[BaseHTTPRequestHandl
                     {"backends": settings_server.get_backend_status_payload()},
                 )
                 return
+            if self.path == "/api/reload":
+                self._send_json(HTTPStatus.OK, settings_server.request_daemon_reload())
+                return
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
+            if self.path == "/api/reload":
+                self._send_json(HTTPStatus.OK, settings_server.request_daemon_reload())
+                return
+
             if self.path != "/api/config":
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return

@@ -40,6 +40,10 @@
             "workspace_left",
             "workspace_right"
           ]
+        },
+        "token": {
+          "type": "string",
+          "description": "Optional command-server auth token for loopback control clients"
         }
       }
     }

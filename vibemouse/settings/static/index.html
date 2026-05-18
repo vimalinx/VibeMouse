@@ -8,115 +8,198 @@
   </head>
   <body>
     <main class="page-shell">
-      <header class="hero">
-        <p class="eyebrow">Local Dictation Control</p>
-        <h1>VibeMouse Settings</h1>
-        <p class="lede">
-          Configure Fast and Enhanced dictation modes, manage personal hotwords,
-          and inspect backend readiness without leaving your machine.
-        </p>
+      <header class="page-header">
+        <div class="page-header-copy">
+          <h1>VibeMouse Settings</h1>
+          <p class="page-subtitle">
+            Configure the default dictation target, translation readback, and personal hotwords.
+          </p>
+        </div>
+        <button id="save-config" class="button button-primary" type="button">
+          Save Settings
+        </button>
       </header>
 
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Profiles</h2>
-          <button id="save-config" class="button button-primary" type="button">
-            Save Settings
-          </button>
-        </div>
-        <div class="profile-grid">
-          <label class="field">
-            <span>Default target</span>
-            <select id="default-profile">
-              <option value="fast">Fast</option>
-              <option value="enhanced">Enhanced</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>OpenClaw target</span>
-            <select id="openclaw-profile">
-              <option value="fast">Fast</option>
-              <option value="enhanced">Enhanced</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Backend Status</h2>
-          <button id="refresh-status" class="button" type="button">Refresh</button>
-        </div>
-        <div id="backend-status" class="status-grid"></div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Dictionary</h2>
-          <p class="panel-copy">
-            Phrases bias Enhanced decoding and normalize final text for both targets.
-          </p>
-        </div>
-        <div class="table-wrap">
-          <table id="dictionary-table">
-            <thead>
-              <tr>
-                <th>Term</th>
-                <th>Phrases</th>
-                <th>Weight</th>
-                <th>Scope</th>
-                <th>Enabled</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="dictionary-body"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h2>Add Entry</h2>
-          <p class="panel-copy">
-            Enter comma-separated phrases. The first matching phrase normalizes to the canonical term.
-          </p>
-        </div>
-        <form id="dictionary-form" class="form-grid">
-          <label class="field">
-            <span>Canonical term</span>
-            <input id="entry-term" name="term" type="text" required />
-          </label>
-          <label class="field">
-            <span>Phrases</span>
-            <input
-              id="entry-phrases"
-              name="phrases"
-              type="text"
-              placeholder="codex, code x, 扣带思"
-              required
-            />
-          </label>
-          <label class="field">
-            <span>Weight</span>
-            <input id="entry-weight" name="weight" type="number" min="1" max="10" value="8" required />
-          </label>
-          <label class="field">
-            <span>Scope</span>
-            <select id="entry-scope" name="scope">
-              <option value="both">Both</option>
-              <option value="default">Default</option>
-              <option value="openclaw">OpenClaw</option>
-            </select>
-          </label>
-          <label class="field field-checkbox">
-            <input id="entry-enabled" name="enabled" type="checkbox" checked />
-            <span>Enabled</span>
-          </label>
-          <div class="form-actions">
-            <button class="button button-primary" type="submit">Add Entry</button>
+      <div class="settings-grid">
+        <section class="panel panel-compact">
+          <div class="panel-header">
+            <div>
+              <h2>Profiles</h2>
+              <p class="panel-copy">Choose the dictation mode used for each output target.</p>
+            </div>
           </div>
-        </form>
-      </section>
+          <div class="profile-grid">
+            <label class="field">
+              <span>Default target</span>
+              <select id="default-profile">
+                <option value="fast">Fast</option>
+                <option value="enhanced">Enhanced</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel panel-compact">
+          <div class="panel-header">
+            <div>
+              <h2>Backend Status</h2>
+              <p class="panel-copy">Check whether each transcription backend is ready to use.</p>
+            </div>
+            <button id="refresh-status" class="button" type="button">Refresh</button>
+          </div>
+          <div id="backend-status" class="status-grid"></div>
+        </section>
+
+        <section class="panel panel-span-2">
+          <div class="panel-header">
+            <div>
+              <h2>Translation Readback</h2>
+              <p class="panel-copy">
+                System translation notifications are disabled. If readback is enabled, external translation providers may receive transcript text unless you choose the local Opus-MT provider.
+              </p>
+            </div>
+          </div>
+          <form id="translation-form" class="form-grid translation-grid">
+            <label class="field field-checkbox field-span-2">
+              <input id="translation-toast-enabled" type="checkbox" disabled />
+              <span>Translation notifications disabled</span>
+            </label>
+            <label class="field field-checkbox field-span-2">
+              <input id="readback-tts-enabled" type="checkbox" />
+              <span>Read the English translation aloud with Edge TTS</span>
+            </label>
+            <label class="field">
+              <span>Readback voice</span>
+              <input
+                id="readback-tts-voice"
+                type="text"
+                placeholder="en-US-EmmaMultilingualNeural"
+              />
+            </label>
+            <label class="field">
+              <span>Provider</span>
+              <select id="translation-provider">
+                <option value="auto">Auto</option>
+                <option value="deepl">DeepL Free</option>
+                <option value="opus_mt">Opus-MT (local)</option>
+                <option value="libretranslate">LibreTranslate</option>
+                <option value="mymemory">MyMemory</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>DeepL Auth Key</span>
+              <input id="translation-deepl-auth-key" type="password" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>DeepL API URL</span>
+              <input
+                id="translation-deepl-api-url"
+                type="url"
+                placeholder="https://api-free.deepl.com/v2/translate"
+              />
+            </label>
+            <label class="field">
+              <span>LibreTranslate URL</span>
+              <input
+                id="translation-libretranslate-url"
+                type="url"
+                placeholder="http://127.0.0.1:5000"
+              />
+            </label>
+            <label class="field">
+              <span>LibreTranslate API Key</span>
+              <input
+                id="translation-libretranslate-api-key"
+                type="password"
+                autocomplete="off"
+              />
+            </label>
+            <label class="field">
+              <span>MyMemory Email</span>
+              <input
+                id="translation-mymemory-email"
+                type="email"
+                placeholder="optional@yourmail.com"
+              />
+            </label>
+            <label class="field">
+              <span>MyMemory Key</span>
+              <input id="translation-mymemory-key" type="password" autocomplete="off" />
+            </label>
+          </form>
+        </section>
+
+        <section class="panel panel-span-2">
+          <div class="panel-header">
+            <div>
+              <h2>Dictionary</h2>
+              <p class="panel-copy">
+                Phrases bias Enhanced decoding and normalize final text.
+              </p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="dictionary-table">
+              <thead>
+                <tr>
+                  <th>Term</th>
+                  <th>Phrases</th>
+                  <th>Weight</th>
+                  <th>Scope</th>
+                  <th>Enabled</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="dictionary-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel panel-span-2">
+          <div class="panel-header">
+            <div>
+              <h2>Add Entry</h2>
+              <p class="panel-copy">
+                Enter comma-separated phrases. The first matching phrase normalizes to the canonical term.
+              </p>
+            </div>
+          </div>
+          <form id="dictionary-form" class="form-grid dictionary-grid">
+            <label class="field">
+              <span>Canonical term</span>
+              <input id="entry-term" name="term" type="text" required />
+            </label>
+            <label class="field field-span-2">
+              <span>Phrases</span>
+              <input
+                id="entry-phrases"
+                name="phrases"
+                type="text"
+                placeholder="codex, code x, 扣带思"
+                required
+              />
+            </label>
+            <label class="field">
+              <span>Weight</span>
+              <input id="entry-weight" name="weight" type="number" min="1" max="10" value="8" required />
+            </label>
+            <label class="field">
+              <span>Scope</span>
+              <select id="entry-scope" name="scope">
+                <option value="both">Both</option>
+                <option value="default">Default</option>
+              </select>
+            </label>
+            <label class="field field-checkbox">
+              <input id="entry-enabled" name="enabled" type="checkbox" checked />
+              <span>Enabled</span>
+            </label>
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Add Entry</button>
+            </div>
+          </form>
+        </section>
+      </div>
 
       <p id="notice" class="notice" role="status"></p>
     </main>

@@ -42,9 +42,14 @@ class IPCClient:
         msg = make_event_message(event_name)
         write_lpjson_frame(binary_writer(self._stdout), msg)
 
-    def send_command(self, command_name: str) -> None:
+    def send_command(
+        self,
+        command_name: str,
+        *,
+        auth_token: str | None = None,
+    ) -> None:
         """Send a command message to the connected peer."""
-        msg = make_command_message(command_name)
+        msg = make_command_message(command_name, auth_token=auth_token)
         write_lpjson_frame(binary_writer(self._stdout), msg)
 
     def run(self) -> None:

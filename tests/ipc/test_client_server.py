@@ -97,3 +97,34 @@ def test_agent_command_server_accepts_loopback_command() -> None:
         assert received == ["shutdown"]
     finally:
         server.stop()
+
+
+def test_agent_command_server_requires_auth_token_when_configured() -> None:
+    received: list[str] = []
+    ready = threading.Event()
+
+    def on_command(command_name: str) -> None:
+        received.append(command_name)
+        ready.set()
+
+    server = AgentCommandServer(on_command=on_command, auth_token="reload-secret")
+    server.start()
+    try:
+        with socket.create_connection(("127.0.0.1", server.port), timeout=2) as conn:
+            stream = conn.makefile("rwb")
+            write_lpjson_frame(stream, make_command_message("shutdown"))
+            stream.close()
+        assert not ready.wait(timeout=0.2)
+        assert received == []
+
+        with socket.create_connection(("127.0.0.1", server.port), timeout=2) as conn:
+            stream = conn.makefile("rwb")
+            write_lpjson_frame(
+                stream,
+                make_command_message("shutdown", auth_token="reload-secret"),
+            )
+            stream.close()
+        assert ready.wait(timeout=2)
+        assert received == ["shutdown"]
+    finally:
+        server.stop()

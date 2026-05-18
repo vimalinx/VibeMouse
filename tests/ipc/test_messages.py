@@ -30,6 +30,15 @@ def test_make_command_message() -> None:
     assert msg == {"type": "command", "command": "shutdown"}
 
 
+def test_make_command_message_includes_auth_token() -> None:
+    msg = make_command_message("reload_config", auth_token="reload-secret")
+    assert msg == {
+        "type": "command",
+        "command": "reload_config",
+        "token": "reload-secret",
+    }
+
+
 def test_parse_event_message() -> None:
     raw = {"type": "event", "event": "hotkey.record_toggle"}
     msg = parse_message(raw)
@@ -38,10 +47,16 @@ def test_parse_event_message() -> None:
 
 
 def test_parse_command_message() -> None:
-    raw = {"type": "command", "command": "reload_config"}
+    raw = {"type": "command", "command": "reload_config", "token": "secret"}
     msg = parse_message(raw)
     assert msg["type"] == "command"
     assert msg["command"] == "reload_config"
+    assert msg["token"] == "secret"
+
+
+def test_parse_command_message_rejects_non_string_token() -> None:
+    with pytest.raises(ValueError, match="token must be a string"):
+        parse_message({"type": "command", "command": "reload_config", "token": 123})
 
 
 def test_parse_message_invalid_type() -> None:

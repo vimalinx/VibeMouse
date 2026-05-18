@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import select
 import threading
 import time
@@ -10,6 +11,7 @@ from typing import Protocol, cast
 
 HotkeyCallback = Callable[[], None]
 EventCallback = Callable[[str], None]
+_LOG = logging.getLogger(__name__)
 
 
 class KeyboardHotkeyListener:
@@ -64,7 +66,7 @@ class KeyboardHotkeyListener:
             except Exception as error:
                 summary = f"Keyboard hotkey listener unavailable ({error}). Retrying..."
                 if summary != last_error_summary:
-                    print(summary)
+                    _LOG.warning(summary)
                     last_error_summary = summary
                 self._reset_pressed_state()
                 if self._stop.wait(1.0):

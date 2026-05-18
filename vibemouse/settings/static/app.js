@@ -4,7 +4,16 @@ const state = {
 };
 
 const defaultProfileSelect = document.querySelector("#default-profile");
-const openclawProfileSelect = document.querySelector("#openclaw-profile");
+const translationToastEnabledInput = document.querySelector("#translation-toast-enabled");
+const readbackTtsEnabledInput = document.querySelector("#readback-tts-enabled");
+const readbackTtsVoiceInput = document.querySelector("#readback-tts-voice");
+const translationProviderSelect = document.querySelector("#translation-provider");
+const translationDeeplAuthKeyInput = document.querySelector("#translation-deepl-auth-key");
+const translationDeeplApiUrlInput = document.querySelector("#translation-deepl-api-url");
+const translationLibreTranslateUrlInput = document.querySelector("#translation-libretranslate-url");
+const translationLibreTranslateApiKeyInput = document.querySelector("#translation-libretranslate-api-key");
+const translationMyMemoryEmailInput = document.querySelector("#translation-mymemory-email");
+const translationMyMemoryKeyInput = document.querySelector("#translation-mymemory-key");
 const dictionaryBody = document.querySelector("#dictionary-body");
 const backendStatus = document.querySelector("#backend-status");
 const notice = document.querySelector("#notice");
@@ -28,7 +37,19 @@ function setNotice(message, type = "info") {
 
 function renderProfiles() {
   defaultProfileSelect.value = state.config.profiles.default;
-  openclawProfileSelect.value = state.config.profiles.openclaw;
+}
+
+function renderTranslationSettings() {
+  translationToastEnabledInput.checked = false;
+  readbackTtsEnabledInput.checked = Boolean(state.config.output.readback_tts_enabled);
+  readbackTtsVoiceInput.value = state.config.output.readback_tts_voice || "";
+  translationProviderSelect.value = state.config.translation.provider;
+  translationDeeplAuthKeyInput.value = state.config.translation.deepl_auth_key || "";
+  translationDeeplApiUrlInput.value = state.config.translation.deepl_api_url || "";
+  translationLibreTranslateUrlInput.value = state.config.translation.libretranslate_url || "";
+  translationLibreTranslateApiKeyInput.value = state.config.translation.libretranslate_api_key || "";
+  translationMyMemoryEmailInput.value = state.config.translation.mymemory_email || "";
+  translationMyMemoryKeyInput.value = state.config.translation.mymemory_key || "";
 }
 
 function renderDictionary() {
@@ -66,12 +87,25 @@ function renderStatus() {
 
 function syncProfileState() {
   state.config.profiles.default = defaultProfileSelect.value;
-  state.config.profiles.openclaw = openclawProfileSelect.value;
+}
+
+function syncTranslationState() {
+  state.config.output.translation_toast_enabled = false;
+  state.config.output.readback_tts_enabled = readbackTtsEnabledInput.checked;
+  state.config.output.readback_tts_voice = readbackTtsVoiceInput.value.trim() || "en-US-EmmaMultilingualNeural";
+  state.config.translation.provider = translationProviderSelect.value;
+  state.config.translation.deepl_auth_key = emptyToNull(translationDeeplAuthKeyInput.value);
+  state.config.translation.deepl_api_url = emptyToNull(translationDeeplApiUrlInput.value);
+  state.config.translation.libretranslate_url = emptyToNull(translationLibreTranslateUrlInput.value);
+  state.config.translation.libretranslate_api_key = emptyToNull(translationLibreTranslateApiKeyInput.value);
+  state.config.translation.mymemory_email = emptyToNull(translationMyMemoryEmailInput.value);
+  state.config.translation.mymemory_key = emptyToNull(translationMyMemoryKeyInput.value);
 }
 
 async function loadConfig() {
   state.config = await readJson("/api/config");
   renderProfiles();
+  renderTranslationSettings();
   renderDictionary();
 }
 
@@ -82,20 +116,27 @@ async function loadStatus() {
 
 async function saveConfig() {
   syncProfileState();
+  syncTranslationState();
   state.config = await readJson("/api/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(state.config),
   });
   renderProfiles();
+  renderTranslationSettings();
   renderDictionary();
+  const reload = await readJson("/api/reload", { method: "POST" });
   try {
     await loadStatus();
   } catch (error) {
     setNotice(`Settings saved, but status refresh failed: ${error.message}`, "error");
     return;
   }
-  setNotice("Settings saved.", "success");
+  if (reload.reloaded) {
+    setNotice("Settings saved and daemon reload requested.", "success");
+  } else {
+    setNotice(`Settings saved. Daemon reload not sent: ${reload.reason}.`, "info");
+  }
 }
 
 function addDictionaryEntry(event) {
@@ -143,6 +184,11 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function emptyToNull(value) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized : null;
 }
 
 saveButton.addEventListener("click", async () => {
