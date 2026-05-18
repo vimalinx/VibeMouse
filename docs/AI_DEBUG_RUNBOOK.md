@@ -22,7 +22,7 @@ Current Linux+Hyprland production chain is intentionally narrowed to:
 2. `mouse_listener.py` (`evdev` primary, `pynput` fallback)
 3. `audio.py` (record start/stop + sample-rate fallback)
 4. `transcriber.py` (`funasr_onnx` runtime only)
-5. `output.py` (enter / typed / clipboard / OpenClaw route)
+5. `output.py` (enter / typed / clipboard route)
 6. `system_integration.py` (`HyprlandSystemIntegration` or `NoopSystemIntegration`)
 
 Simplified/removed paths:

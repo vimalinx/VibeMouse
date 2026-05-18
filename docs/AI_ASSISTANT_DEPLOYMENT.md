@@ -11,7 +11,7 @@ VibeMouse is a side-button voice workflow tool.
 Required behavior:
 - Front side button: start/stop recording
 - Rear side button when idle: send Enter
-- Rear side button while recording: stop recording and dispatch transcript to OpenClaw
+- Rear side button while recording: stop recording and output the transcript through the default text route
 - Fallbacks must preserve user output (never silently lose text)
 
 Do not break this state machine while adapting platforms.
@@ -24,7 +24,7 @@ Key modules:
 - `vibemouse/mouse_listener.py`: side-button capture + gesture path
 - `vibemouse/audio.py`: microphone recording
 - `vibemouse/transcriber.py`: ASR backend selection/transcription
-- `vibemouse/output.py`: text output routing + OpenClaw dispatch + fallback
+- `vibemouse/output.py`: text output routing + clipboard fallback
 - `vibemouse/system_integration.py`: platform adapter boundary
 - `vibemouse/doctor.py`: environment and runtime diagnostics
 - `vibemouse/config.py`: env config contract
@@ -71,9 +71,6 @@ Rule: add platform-specific behavior here first; avoid spreading platform logic 
 - OpenVINO: https://pypi.org/project/openvino/
 - ModelScope: https://pypi.org/project/modelscope/
 
-### OpenClaw integration target
-- OpenClaw repo: https://github.com/openclaw/openclaw
-
 The project’s pinned Python dependencies are defined in `pyproject.toml`.
 
 ## 5) Deployment Procedure (Assistant-Executable)
@@ -106,19 +103,14 @@ vibemouse doctor
 vibemouse doctor --fix
 ```
 
-3. Ensure OpenClaw route works
-```bash
-openclaw agent --agent main --message "ping" --json
-```
-
-4. Start runtime
+3. Start runtime
 ```bash
 vibemouse
 ```
 
-5. Validate behavior matrix manually
+4. Validate behavior matrix manually
 - idle + rear -> Enter
-- recording + rear -> OpenClaw dispatch
+- recording + rear -> default text output
 
 ## 6) Service Deployment (Linux user service)
 
@@ -134,16 +126,11 @@ systemctl --user status vibemouse.service
 
 ## 7) Environment Contract (Critical Variables)
 
-OpenClaw:
-- `VIBEMOUSE_OPENCLAW_COMMAND`
-- `VIBEMOUSE_OPENCLAW_AGENT`
-- `VIBEMOUSE_OPENCLAW_TIMEOUT_S`
-- `VIBEMOUSE_OPENCLAW_RETRIES`
-
 Buttons/state:
 - `VIBEMOUSE_FRONT_BUTTON`
 - `VIBEMOUSE_REAR_BUTTON`
 - `VIBEMOUSE_ENTER_MODE`
+- `VIBEMOUSE_COMMAND_AUTH_TOKEN`
 
 ASR performance:
 - `VIBEMOUSE_BACKEND`
@@ -179,7 +166,7 @@ vibemouse doctor
 ## 9) Regression Gates (Must Pass Before Merge)
 
 - No change to front/rear state semantics
-- OpenClaw dispatch keeps fallback path
+- Text output keeps clipboard fallback path
 - Doctor command still reports useful failures/warnings
 - Existing tests pass; new platform tests added
 - No destructive change to Linux Hyprland path
@@ -195,9 +182,9 @@ Constraints:
 1) Preserve button state machine:
    - front: start/stop recording
    - rear idle: Enter
-   - rear recording: OpenClaw dispatch
+   - rear recording: default text output
 2) Implement platform logic only via system_integration.py first.
-3) Preserve fallback behavior (clipboard fallback on OpenClaw spawn failure).
+3) Preserve fallback behavior (clipboard fallback when direct text input fails).
 4) Add/adjust tests in test_system_integration.py, test_output.py, test_app.py.
 5) Run compileall + full unit tests + vibemouse doctor and report results.
 

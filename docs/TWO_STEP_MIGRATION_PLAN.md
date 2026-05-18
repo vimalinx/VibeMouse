@@ -709,7 +709,7 @@ Windows and macOS should be built on top of the listener/bindings/ipc split, not
 - `bindings`
 - `transcriber`
 - `output`
-- `openclaw`
+- `runtime`
 - `platform`
 - `startup`
 - `logs`

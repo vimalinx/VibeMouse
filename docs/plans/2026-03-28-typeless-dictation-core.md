@@ -26,7 +26,7 @@ Add tests for:
 ```python
 def test_default_config_contains_profiles_and_dictionary():
     doc = build_default_config_document()
-    assert doc["profiles"] == {"default": "fast", "openclaw": "enhanced"}
+    assert doc["profiles"] == {"default": "fast"}
     assert doc["dictionary"] == []
 
 
@@ -104,7 +104,7 @@ Add tests for:
 ```python
 def test_scope_filters_dictionary_entries():
     service = DictionaryService(entries)
-    hotwords = service.hotwords_for_scope("openclaw")
+    hotwords = service.hotwords_for_scope("default")
     assert "Codex" in hotwords
 
 
@@ -165,7 +165,7 @@ Add tests for:
 
 ```python
 def test_router_uses_fast_backend_for_default_profile(): ...
-def test_router_uses_enhanced_backend_for_openclaw_profile(): ...
+def test_router_uses_enhanced_backend_for_default_profile_when_configured(): ...
 def test_router_reports_unavailable_backend_without_silent_downgrade(): ...
 ```
 
@@ -221,7 +221,7 @@ Add tests for:
 
 ```python
 def test_default_target_uses_default_profile_and_normalizes_text(): ...
-def test_openclaw_target_uses_openclaw_profile_and_hotwords(): ...
+def test_default_target_uses_hotwords(): ...
 def test_enhanced_unavailable_logs_explicit_failure(): ...
 ```
 
@@ -376,7 +376,7 @@ Expected: FAIL because the UI assets are not served.
 
 The page must include:
 
-- profile selectors for `default` and `openclaw`
+- profile selector for `default`
 - dictionary table
 - add/edit entry form
 - backend status panel

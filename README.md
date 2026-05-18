@@ -14,7 +14,7 @@ AI adaptation guides:
 VibeMouse binds your coding speech workflow to mouse side buttons:
 - Front side button: start/stop recording
 - Rear side button while idle: send Enter
-- Rear side button while recording: stop recording and route transcript to OpenClaw
+- Rear side button while recording: stop recording and output the transcript through the default text route
 
 Core goals are low friction, stable daily use, and graceful fallback when any subsystem fails.
 
@@ -33,11 +33,11 @@ The runtime is event-driven and split by responsibility:
 5. `vibemouse/transcriber.py`
    - SenseVoice backend selection and transcription
 6. `vibemouse/output.py`
-   - Text typing / clipboard / OpenClaw dispatch, with fallback and reason tracking
+   - Text typing / clipboard output, with fallback and reason tracking
 7. `vibemouse/system_integration.py`
    - Platform adapter boundary (Hyprland now, Windows/macOS extension points prepared)
 8. `vibemouse/doctor.py`
-   - Built-in diagnostics for env, OpenClaw, input permissions, and known conflicts
+   - Built-in diagnostics for env, input permissions, and known conflicts
 
 ## Quick Start (Linux)
 
@@ -74,6 +74,7 @@ vibemouse
 Default install is ONNX-first for smaller deployment footprint.
 
 - Optional PyTorch backend (GPU/advanced fallback): `pip install -e ".[pt]"`
+- Optional local Opus-MT translation dependencies: `pip install -e ".[translation]"`
 - Optional Intel NPU dependencies: `pip install -e ".[npu]"`
 
 ## Dictation Profiles And Dictionary
@@ -84,7 +85,6 @@ VibeMouse now exposes two user-facing dictation modes instead of raw model names
 
 Profiles are assigned per output target:
 - `default`
-- `openclaw`
 
 Dictionary entries are shared across both targets and use this shape:
 
@@ -101,7 +101,7 @@ Dictionary entries are shared across both targets and use this shape:
 Behavior:
 - `Enhanced` uses `phrases` + `weight` for hotword biasing during decoding
 - both `Fast` and `Enhanced` normalize matched phrases back to the canonical `term`
-- `scope` can be `default`, `openclaw`, or `both`
+- `scope` can be `default` or `both`
 - if `Enhanced` is unavailable, VibeMouse reports the failure explicitly instead of silently downgrading
 
 See [`shared/examples/config.example.json`](./shared/examples/config.example.json) for a complete example.
@@ -121,7 +121,7 @@ vibemouse settings
 ```
 
 The UI lets you:
-- switch `default` / `openclaw` between `Fast` and `Enhanced`
+- switch the default dictation profile between `Fast` and `Enhanced`
 - add, edit, enable, or disable dictionary entries
 - inspect backend availability and dependency errors
 
@@ -155,7 +155,7 @@ enables `systemd --user` service, and runs `vibemouse doctor`.
 
 Available presets:
 - `stable`: balanced daily-driver defaults
-- `fast`: lower debounce + higher OpenClaw retries
+- `fast`: lower debounce for faster side-button response
 - `low-resource`: lower background footprint defaults
 
 Examples:
@@ -166,9 +166,6 @@ bash scripts/auto-deploy.sh --preset stable
 
 # Keep resources low
 bash scripts/auto-deploy.sh --preset low-resource
-
-# Custom OpenClaw target assistant
-bash scripts/auto-deploy.sh --preset stable --openclaw-agent ops
 ```
 
 ## Default Mapping and State Logic
@@ -178,7 +175,7 @@ bash scripts/auto-deploy.sh --preset stable --openclaw-agent ops
 
 State matrix:
 - Idle + rear press -> Enter (`VIBEMOUSE_ENTER_MODE`)
-- Recording + rear press -> stop recording + OpenClaw dispatch
+- Recording + rear press -> stop recording + default text output
 
 If your hardware labels are reversed:
 
@@ -187,21 +184,12 @@ export VIBEMOUSE_FRONT_BUTTON=x2
 export VIBEMOUSE_REAR_BUTTON=x1
 ```
 
-## OpenClaw Integration (Core)
+## Runtime Settings Reload
 
-OpenClaw route is explicit and configurable:
-- `VIBEMOUSE_OPENCLAW_COMMAND` (default `openclaw`)
-- `VIBEMOUSE_OPENCLAW_AGENT` (default `main`)
-- `VIBEMOUSE_OPENCLAW_TIMEOUT_S` (default `20.0`)
-- `VIBEMOUSE_OPENCLAW_RETRIES` (default `0`)
-
-Dispatch behavior:
-- Fast fire-and-forget spawn to avoid blocking UI interaction
-- Route result includes reason (`dispatched`, `dispatched_after_retry_*`, `spawn_error:*`, etc.)
-- Clipboard fallback if command is invalid or spawn fails
-
-Deployment tip: if you run your own local assistant setup, set
-`VIBEMOUSE_OPENCLAW_AGENT` to your own assistant ID.
+The local settings UI asks the running daemon to reload after saving config.
+If you expose the command server beyond the default loopback workflow, set:
+- `VIBEMOUSE_COMMAND_AUTH_TOKEN`
+- `runtime.command_auth_token` in `config.json`
 
 ## Built-in Doctor
 
@@ -219,7 +207,6 @@ vibemouse doctor --fix
 
 Current checks include:
 - Config load validity
-- OpenClaw command resolution + agent existence
 - Microphone input availability
 - Linux input device permissions / side-button capability
 - Hyprland rear-button Return bind conflicts
@@ -241,9 +228,7 @@ vibemouse deploy --preset stable
 
 Useful flags:
 - `--preset stable|fast|low-resource`
-- `--openclaw-command "openclaw --profile prod"`
-- `--openclaw-agent main`
-- `--openclaw-retries 2`
+- `--command-auth-token reload-secret`
 - `--log-file ~/.local/state/vibemouse/service.log`
 - `--skip-systemctl`
 - `--dry-run`
@@ -267,6 +252,7 @@ tail -f ~/.local/state/vibemouse/service.log
 | `VIBEMOUSE_PREWARM_ON_START` | `true` | Preload ASR on startup to reduce first-use latency |
 | `VIBEMOUSE_PREWARM_DELAY_S` | `0.0` | Delay ASR prewarm after startup to improve initial responsiveness |
 | `VIBEMOUSE_STATUS_FILE` | `$XDG_RUNTIME_DIR/vibemouse-status.json` | Runtime status for bars/widgets |
+| `VIBEMOUSE_COMMAND_AUTH_TOKEN` | unset | Optional token required by local command-server clients |
 
 Full configuration source of truth: `vibemouse/config/schema.py`.
 
@@ -319,10 +305,10 @@ Then reload:
 hyprctl reload config-only
 ```
 
-### OpenClaw route not working
+### Settings changes do not apply to the running daemon
 
 ```bash
-openclaw agent --agent main --message "ping" --json
+cat "${XDG_RUNTIME_DIR:-/tmp}/vibemouse-status.json"
 vibemouse doctor
 ```
 

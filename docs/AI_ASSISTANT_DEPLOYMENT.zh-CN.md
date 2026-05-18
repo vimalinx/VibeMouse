@@ -11,7 +11,7 @@ VibeMouse 是“鼠标侧键语音工作流”工具。
 必须保持的行为：
 - 前侧键：开始/结束录音
 - 空闲态后侧键：发送 Enter
-- 录音态后侧键：停止录音并将转写发送到 OpenClaw
+- 录音态后侧键：停止录音并通过默认文本通路输出转写
 - 任何失败都必须有可见回退，不能静默丢字
 
 做适配时，禁止破坏上述状态机。
@@ -24,7 +24,7 @@ VibeMouse 是“鼠标侧键语音工作流”工具。
 - `vibemouse/mouse_listener.py`：侧键监听与手势路径
 - `vibemouse/audio.py`：录音
 - `vibemouse/transcriber.py`：ASR 后端与识别
-- `vibemouse/output.py`：输入/剪贴板/OpenClaw 路由与回退
+- `vibemouse/output.py`：输入/剪贴板输出与回退
 - `vibemouse/system_integration.py`：平台适配边界
 - `vibemouse/doctor.py`：部署与运行自检
 - `vibemouse/config.py`：环境变量配置契约
@@ -69,9 +69,6 @@ VibeMouse 是“鼠标侧键语音工作流”工具。
 - OpenVINO：https://pypi.org/project/openvino/
 - ModelScope：https://pypi.org/project/modelscope/
 
-### OpenClaw 目标
-- OpenClaw 仓库：https://github.com/openclaw/openclaw
-
 Python 依赖版本以 `pyproject.toml` 为准。
 
 ## 5）部署步骤（可直接让 AI 助手执行）
@@ -104,19 +101,14 @@ vibemouse doctor
 vibemouse doctor --fix
 ```
 
-3. 验证 OpenClaw
-```bash
-openclaw agent --agent main --message "ping" --json
-```
-
-4. 启动
+3. 启动
 ```bash
 vibemouse
 ```
 
-5. 手工验证状态矩阵
+4. 手工验证状态矩阵
 - 空闲态后侧键 -> Enter
-- 录音态后侧键 -> OpenClaw 路由
+- 录音态后侧键 -> 默认文本输出
 
 ## 6）Linux user service 部署
 
@@ -132,16 +124,11 @@ systemctl --user status vibemouse.service
 
 ## 7）环境变量契约（关键）
 
-OpenClaw：
-- `VIBEMOUSE_OPENCLAW_COMMAND`
-- `VIBEMOUSE_OPENCLAW_AGENT`
-- `VIBEMOUSE_OPENCLAW_TIMEOUT_S`
-- `VIBEMOUSE_OPENCLAW_RETRIES`
-
 按钮与状态：
 - `VIBEMOUSE_FRONT_BUTTON`
 - `VIBEMOUSE_REAR_BUTTON`
 - `VIBEMOUSE_ENTER_MODE`
+- `VIBEMOUSE_COMMAND_AUTH_TOKEN`
 
 识别性能：
 - `VIBEMOUSE_BACKEND`
@@ -177,7 +164,7 @@ vibemouse doctor
 ## 9）合并前回归门槛
 
 - 前/后侧键状态语义不变
-- OpenClaw 路由仍有失败回退
+- 文本输出仍保留剪贴板回退
 - doctor 输出对故障可读、可定位
 - 全量测试通过，并补充平台测试
 - Linux Hyprland 主路径不能退化
@@ -193,9 +180,9 @@ vibemouse doctor
 1）必须保持按钮状态机：
    - 前侧键：开始/结束录音
    - 后侧键空闲态：Enter
-   - 后侧键录音态：OpenClaw 路由
+   - 后侧键录音态：默认文本输出
 2）平台逻辑优先放在 system_integration.py，不要散落到其它模块。
-3）必须保留失败回退（OpenClaw 启动失败回退到剪贴板）。
+3）必须保留失败回退（直接输入失败时回退到剪贴板）。
 4）更新 test_system_integration.py、test_output.py、test_app.py。
 5）执行 compileall + 全量单测 + vibemouse doctor，并报告结果。
 

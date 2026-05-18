@@ -10,7 +10,7 @@ This stage includes:
 
 - Dual dictation modes: `Fast` and `Enhanced`
 - Shared personal dictionary with hotword phrases, weights, scopes, and enable flags
-- Explicit backend routing per output target (`default`, `openclaw`)
+- Explicit backend routing for the default output target
 - Post-transcription normalization that unifies final display text
 - Local settings UI for profile selection, dictionary management, and backend status
 - Explicit backend availability reporting with no hidden downgrade
@@ -37,17 +37,15 @@ The user does not choose raw model names. The user chooses modes:
   - Uses a backend that explicitly supports hotword biasing
   - Reads the shared dictionary for both hotword biasing and normalization
 
-Each output target gets its own mode:
+The default output target gets a configurable mode:
 
 - `default` output target
-- `openclaw` output target
 
 Example:
 
 - `default -> Fast`
-- `openclaw -> Enhanced`
 
-This preserves quick local typing while allowing more expensive recognition for assistant-facing prompts.
+This preserves quick local typing while still allowing users to switch to a more expensive recognition mode when needed.
 
 ## Architecture
 
@@ -110,8 +108,7 @@ The current JSON config schema should be extended with three new top-level secti
 ```json
 {
   "profiles": {
-    "default": "fast",
-    "openclaw": "enhanced"
+    "default": "fast"
   },
   "dictionary": [
     {
@@ -135,11 +132,11 @@ The current JSON config schema should be extended with three new top-level secti
 
 Design rules:
 
-- `profiles.default` and `profiles.openclaw` accept only `fast` or `enhanced`
+- `profiles.default` accepts only `fast` or `enhanced`
 - dictionary entries are independent records, not free-form alias maps
 - `phrases` is the source of bias terms
 - `term` is the canonical final text
-- `scope` controls whether a term applies to `default`, `openclaw`, or both
+- `scope` controls whether a term applies to `default` or `both`
 - `weight` is only consumed by `Enhanced`
 
 The config system already has schema/store infrastructure in [`vibemouse/config/schema.py`](/home/vimalinx/Projects/VibeLifes/VibeMouse/vibemouse/config/schema.py) and [`vibemouse/config/store.py`](/home/vimalinx/Projects/VibeLifes/VibeMouse/vibemouse/config/store.py). This feature should extend that system rather than introduce environment-only configuration.
@@ -179,7 +176,6 @@ Reasons:
 
 1. `Profiles`
    - default target mode
-   - openclaw target mode
 
 2. `Dictionary`
    - list entries
@@ -250,7 +246,6 @@ Minimum verification:
 - settings API tests
 - app integration tests for:
   - `default -> Fast`
-  - `openclaw -> Enhanced`
   - `Enhanced unavailable`
 
 Additionally, add a small manual benchmark fixture format for personal dictation phrases so profile quality can be compared honestly instead of by feel.

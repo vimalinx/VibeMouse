@@ -701,7 +701,7 @@ Windows 和 macOS 应该建立在 `listener / bindings / ipc / core` 这些清�
 - `bindings`
 - `transcriber`
 - `output`
-- `openclaw`
+- `runtime`
 - `platform`
 - `startup`
 - `logs`

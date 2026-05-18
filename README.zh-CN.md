@@ -14,7 +14,7 @@ AI 适配指南：
 VibeMouse 把高频语音工作流绑定到鼠标侧键：
 - 前侧键：开始 / 结束录音
 - 空闲态按后侧键：发送 Enter
-- 录音态按后侧键：停止录音并把转写发送到 OpenClaw
+- 录音态按后侧键：停止录音并通过默认文本通路输出转写
 
 核心目标是低摩擦、可日常稳定使用，并且每个环节失败时都有回退路径。
 
@@ -33,11 +33,11 @@ VibeMouse 把高频语音工作流绑定到鼠标侧键：
 5. `vibemouse/transcriber.py`
    - SenseVoice 后端选择与识别
 6. `vibemouse/output.py`
-   - 输入 / 剪贴板 / OpenClaw 路由与失败回退
+   - 输入 / 剪贴板输出与失败回退
 7. `vibemouse/system_integration.py`
    - 平台适配边界（当前 Hyprland，可扩展 Windows/macOS）
 8. `vibemouse/doctor.py`
-   - 内置自检（环境、OpenClaw、输入权限、冲突绑定）
+   - 内置自检（环境、输入权限、冲突绑定）
 
 ## 快速开始（Linux）
 
@@ -74,6 +74,7 @@ vibemouse
 默认安装走 ONNX 优先，部署体积更小。
 
 - 可选 PyTorch 后端（GPU/高级兜底）：`pip install -e ".[pt]"`
+- 可选本地 Opus-MT 翻译依赖：`pip install -e ".[translation]"`
 - 可选 Intel NPU 依赖：`pip install -e ".[npu]"`
 
 ## 转写档位与个人词典
@@ -84,7 +85,6 @@ VibeMouse 现在对外只暴露两种用户可理解的转写档位，而不是�
 
 档位按输出目标分别配置：
 - `default`
-- `openclaw`
 
 个人词典条目结构如下：
 
@@ -101,7 +101,7 @@ VibeMouse 现在对外只暴露两种用户可理解的转写档位，而不是�
 行为规则：
 - `Enhanced` 会把 `phrases` 和 `weight` 作为解码热词偏置
 - `Fast` 和 `Enhanced` 都会在转写后把命中的短语规范化回 `term`
-- `scope` 可选 `default`、`openclaw` 或 `both`
+- `scope` 可选 `default` 或 `both`
 - 如果 `Enhanced` 当前不可用，运行时会明确报错，不会偷偷降级
 
 完整示例可参考 [`shared/examples/config.example.json`](./shared/examples/config.example.json)。
@@ -121,7 +121,7 @@ vibemouse settings
 ```
 
 这个界面可以：
-- 切换 `default` / `openclaw` 的 `Fast` / `Enhanced`
+- 切换默认转写档位的 `Fast` / `Enhanced`
 - 增删改查词典条目，并启用或禁用
 - 查看后端可用性与依赖缺失原因
 
@@ -156,7 +156,7 @@ bash scripts/auto-deploy.sh --preset stable
 
 可选预设：
 - `stable`：日常稳定均衡
-- `fast`：更低去抖 + 更高 OpenClaw 重试
+- `fast`：更低去抖，侧键响应更快
 - `low-resource`：更低后台资源占用
 
 示例：
@@ -167,9 +167,6 @@ bash scripts/auto-deploy.sh --preset stable
 
 # 低资源档
 bash scripts/auto-deploy.sh --preset low-resource
-
-# 指定你自己的 OpenClaw 助手
-bash scripts/auto-deploy.sh --preset stable --openclaw-agent ops
 ```
 
 ## 默认映射与状态逻辑
@@ -179,7 +176,7 @@ bash scripts/auto-deploy.sh --preset stable --openclaw-agent ops
 
 状态矩阵：
 - 空闲 + 后侧键 -> Enter（由 `VIBEMOUSE_ENTER_MODE` 控制）
-- 录音中 + 后侧键 -> 停止录音 + OpenClaw 路由
+- 录音中 + 后侧键 -> 停止录音 + 默认文本输出
 
 如果鼠标物理定义相反：
 
@@ -188,21 +185,12 @@ export VIBEMOUSE_FRONT_BUTTON=x2
 export VIBEMOUSE_REAR_BUTTON=x1
 ```
 
-## OpenClaw 集成（核心）
+## 运行时设置重载
 
-OpenClaw 路由可配置：
-- `VIBEMOUSE_OPENCLAW_COMMAND`（默认 `openclaw`）
-- `VIBEMOUSE_OPENCLAW_AGENT`（默认 `main`）
-- `VIBEMOUSE_OPENCLAW_TIMEOUT_S`（默认 `20.0`）
-- `VIBEMOUSE_OPENCLAW_RETRIES`（默认 `0`）
-
-调度行为：
-- 快速非阻塞派发，避免阻塞交互
-- 返回路由原因（如 `dispatched`、`dispatched_after_retry_*`、`spawn_error:*`）
-- 命令无效或拉起失败时自动回退到剪贴板
-
-部署提示：如果你用自己的本地 AI 助手体系，把
-`VIBEMOUSE_OPENCLAW_AGENT` 改成你自己的助手 ID。
+本地设置页保存配置后，会请求正在运行的 daemon 重载配置。
+如果你需要给本地命令服务增加鉴权，可设置：
+- `VIBEMOUSE_COMMAND_AUTH_TOKEN`
+- `config.json` 里的 `runtime.command_auth_token`
 
 ## 内置自检 Doctor
 
@@ -220,7 +208,6 @@ vibemouse doctor --fix
 
 当前检查项：
 - 配置加载是否有效
-- OpenClaw 命令是否可执行 + agent 是否存在
 - 麦克风输入设备可用性
 - Linux 输入设备权限 / 侧键能力
 - Hyprland 后侧键 Return 冲突绑定
@@ -242,9 +229,7 @@ vibemouse deploy --preset stable
 
 常用参数：
 - `--preset stable|fast|low-resource`
-- `--openclaw-command "openclaw --profile prod"`
-- `--openclaw-agent main`
-- `--openclaw-retries 2`
+- `--command-auth-token reload-secret`
 - `--log-file ~/.local/state/vibemouse/service.log`
 - `--skip-systemctl`
 - `--dry-run`
@@ -268,6 +253,7 @@ tail -f ~/.local/state/vibemouse/service.log
 | `VIBEMOUSE_PREWARM_ON_START` | `true` | 启动预热，降低首次识别延迟 |
 | `VIBEMOUSE_PREWARM_DELAY_S` | `0.0` | 启动后延迟执行 ASR 预热，改善初始响应速度 |
 | `VIBEMOUSE_STATUS_FILE` | `$XDG_RUNTIME_DIR/vibemouse-status.json` | 运行状态文件（状态栏读取） |
+| `VIBEMOUSE_COMMAND_AUTH_TOKEN` | 未设置 | 本地命令服务客户端的可选鉴权 token |
 
 完整配置以 `vibemouse/config/schema.py` 为准。
 
@@ -319,10 +305,10 @@ bind = , mouse:276, sendshortcut, , Return, activewindow
 hyprctl reload config-only
 ```
 
-### OpenClaw 路由异常
+### 设置页改动没有应用到运行中的 daemon
 
 ```bash
-openclaw agent --agent main --message "ping" --json
+cat "${XDG_RUNTIME_DIR:-/tmp}/vibemouse-status.json"
 vibemouse doctor
 ```
 
