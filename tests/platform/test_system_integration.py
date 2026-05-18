@@ -11,6 +11,7 @@ from vibemouse.system_integration import (
     create_system_integration,
     detect_hyprland_session,
     is_browser_window_payload,
+    is_fullscreen_window_payload,
     is_terminal_window_payload,
     probe_send_enter_via_atspi,
     probe_text_input_focus_via_atspi,
@@ -83,6 +84,21 @@ class HyprlandSystemIntegrationTests(unittest.TestCase):
             side_effect=subprocess.TimeoutExpired(cmd=["hyprctl"], timeout=1.0),
         ):
             self.assertFalse(integration.switch_workspace("right"))
+
+    def test_switch_workspace_is_skipped_when_active_window_is_fullscreen(self) -> None:
+        integration = HyprlandSystemIntegration()
+        with patch(
+            "vibemouse.system_integration.subprocess.run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout='{"class":"zen-browser","fullscreen":1}\n',
+            ),
+        ) as run_mock:
+            ok = integration.switch_workspace("right")
+
+        self.assertFalse(ok)
+        self.assertEqual(run_mock.call_count, 1)
+        self.assertEqual(run_mock.call_args.args[0], ["hyprctl", "-j", "activewindow"])
 
     def test_cursor_position_returns_tuple_from_json(self) -> None:
         integration = HyprlandSystemIntegration()
@@ -162,6 +178,12 @@ class HyprlandSystemIntegrationTests(unittest.TestCase):
             "title": "shell",
         }
         self.assertFalse(is_browser_window_payload(payload))
+
+    def test_fullscreen_payload_detection_supports_hyprland_fields(self) -> None:
+        self.assertTrue(is_fullscreen_window_payload({"fullscreen": 1}))
+        self.assertTrue(is_fullscreen_window_payload({"fullscreenClient": True}))
+        self.assertTrue(is_fullscreen_window_payload({"fakeFullscreen": "true"}))
+        self.assertFalse(is_fullscreen_window_payload({"fullscreen": 0}))
 
     def test_probe_text_input_focus_returns_true_when_script_outputs_one(self) -> None:
         with patch(

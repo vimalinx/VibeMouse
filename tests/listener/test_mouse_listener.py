@@ -51,6 +51,16 @@ class _NeutralSystemIntegration:
         return ()
 
 
+class _FullscreenSystemIntegration(_NeutralSystemIntegration):
+    def active_window(self) -> dict[str, object] | None:
+        return {
+            "class": "zen-browser",
+            "initialClass": "zen",
+            "title": "ChatGPT",
+            "fullscreen": 1,
+        }
+
+
 class SideButtonListenerGestureTests(unittest.TestCase):
     @staticmethod
     def _classify(dx: int, dy: int, threshold_px: int) -> str | None:
@@ -544,6 +554,79 @@ class SideButtonListenerGestureTests(unittest.TestCase):
         self.assertTrue(cast(bool, getattr(listener, "_right_trigger_passthrough")))
         self.assertTrue(cast(bool, getattr(listener, "_right_trigger_pressed")))
         begin_suppress.assert_not_called()
+
+    def test_begin_right_trigger_press_passthroughs_fullscreen_window(self) -> None:
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="right",
+            system_integration=_FullscreenSystemIntegration(),
+        )
+
+        begin = cast(Callable[..., None], getattr(listener, "_begin_right_trigger_press"))
+
+        with patch.object(listener, "_begin_button_suppress") as begin_suppress:
+            begin(initial_position=(1, 2))
+
+        self.assertTrue(cast(bool, getattr(listener, "_right_trigger_passthrough")))
+        self.assertTrue(
+            cast(
+                bool,
+                getattr(listener, "_right_trigger_horizontal_gesture_disabled"),
+            )
+        )
+        begin_suppress.assert_not_called()
+
+    def test_fullscreen_right_trigger_does_not_dispatch_horizontal_gesture(self) -> None:
+        seen: list[str] = []
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            on_gesture=seen.append,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="right",
+            system_integration=_FullscreenSystemIntegration(),
+        )
+
+        begin = cast(Callable[..., None], getattr(listener, "_begin_right_trigger_press"))
+        maybe_dispatch = cast(
+            Callable[[], bool],
+            getattr(listener, "_maybe_dispatch_passthrough_right_gesture"),
+        )
+        begin(initial_position=(1, 2))
+        setattr(listener, "_right_trigger_pending_dx", 180)
+
+        self.assertFalse(maybe_dispatch())
+        self.assertEqual(seen, [])
+
+    def test_fullscreen_right_trigger_still_dispatches_vertical_gesture(self) -> None:
+        seen: list[str] = []
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            on_gesture=seen.append,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="right",
+            system_integration=_FullscreenSystemIntegration(),
+        )
+
+        begin = cast(Callable[..., None], getattr(listener, "_begin_right_trigger_press"))
+        maybe_dispatch = cast(
+            Callable[[], bool],
+            getattr(listener, "_maybe_dispatch_passthrough_right_gesture"),
+        )
+        begin(initial_position=(1, 2))
+        setattr(listener, "_right_trigger_pending_dy", -180)
+
+        self.assertTrue(maybe_dispatch())
+        self.assertEqual(seen, ["up"])
 
     def test_passthrough_right_gesture_dispatches_on_large_move(self) -> None:
         listener = SideButtonListener(

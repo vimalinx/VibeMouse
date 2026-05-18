@@ -59,6 +59,23 @@ _BROWSER_CLASS_HINTS: set[str] = {
 }
 
 
+def is_fullscreen_window_payload(payload: Mapping[str, object]) -> bool:
+    return any(
+        _is_truthy_window_flag(payload.get(key))
+        for key in ("fullscreen", "fullscreenClient", "fakeFullscreen")
+    )
+
+
+def _is_truthy_window_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
 def is_terminal_window_payload(payload: Mapping[str, object]) -> bool:
     window_class = str(payload.get("class", "")).lower()
     initial_class = str(payload.get("initialClass", "")).lower()
@@ -232,6 +249,9 @@ class HyprlandSystemIntegration:
         return self._dispatch(["movecursor", str(x), str(y)], timeout=0.8)
 
     def switch_workspace(self, direction: str) -> bool:
+        payload = self.active_window()
+        if payload is not None and is_fullscreen_window_payload(payload):
+            return False
         workspace_arg = "e-1" if direction == "left" else "e+1"
         return self._dispatch(["workspace", workspace_arg], timeout=1.0)
 

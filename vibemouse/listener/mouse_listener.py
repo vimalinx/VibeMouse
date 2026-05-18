@@ -18,6 +18,7 @@ from vibemouse.platform.system_integration import (
     SystemIntegration,
     create_system_integration,
     is_browser_window_payload,
+    is_fullscreen_window_payload,
 )
 
 
@@ -97,6 +98,7 @@ class SideButtonListener:
         self._right_trigger_pending_dy: int = 0
         self._right_trigger_origin_position: tuple[int, int] | None = None
         self._right_trigger_passthrough: bool = False
+        self._right_trigger_horizontal_gesture_disabled: bool = False
         self._right_tap_timeout_s: float = 0.30
         self._right_click_slop_px: int = 8
         self._right_hold_suppress_timeout_s: float = 8.0
@@ -468,6 +470,7 @@ class SideButtonListener:
         self._right_trigger_pending_dy = 0
         self._right_trigger_origin_position = None
         self._right_trigger_passthrough = False
+        self._right_trigger_horizontal_gesture_disabled = False
 
     def _should_passthrough_right_trigger(self) -> bool:
         try:
@@ -481,6 +484,16 @@ class SideButtonListener:
         xwayland = payload.get("xwayland")
         return xwayland is False
 
+    def _should_disable_right_trigger_horizontal_gesture(self) -> bool:
+        try:
+            payload = self._system_integration.active_window()
+        except Exception:
+            return False
+
+        if payload is None:
+            return False
+        return is_fullscreen_window_payload(payload)
+
     def _begin_right_trigger_press(
         self,
         *,
@@ -491,6 +504,10 @@ class SideButtonListener:
         self._right_trigger_pressed = True
         self._right_trigger_pressed_since = time.monotonic()
         self._right_trigger_origin_position = initial_position
+        if self._should_disable_right_trigger_horizontal_gesture():
+            self._right_trigger_passthrough = True
+            self._right_trigger_horizontal_gesture_disabled = True
+            return
         if self._should_passthrough_right_trigger():
             self._right_trigger_passthrough = True
             return
@@ -511,6 +528,11 @@ class SideButtonListener:
             self._gesture_threshold_px,
         )
         if direction is None:
+            return False
+        if (
+            self._right_trigger_horizontal_gesture_disabled
+            and direction in {"left", "right"}
+        ):
             return False
 
         self._dispatch_gesture(direction)
