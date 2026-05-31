@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 from threading import Lock
 from typing import Protocol, cast
@@ -14,6 +15,10 @@ from vibemouse.core.backends.base import (
 
 
 _DEFAULT_ENHANCED_MODEL = "paraformer-zh"
+_DEFAULT_PUNCTUATION_MODEL = "ct-punc"
+_DEFAULT_VAD_MODEL = "fsmn-vad"
+_SPACE_AROUND_CJK_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+|\s+(?=[\u3400-\u9fff])")
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 class FunASREnhancedBackend:
@@ -48,7 +53,10 @@ class FunASREnhancedBackend:
             "input": str(audio_path),
             "language": self._config.language,
             "use_itn": self._config.use_itn,
+            "disable_pbar": True,
         }
+        if self._config.enable_vad:
+            generate_kwargs["merge_vad"] = self._config.merge_vad
         hotword_payload = _format_hotwords(hotwords)
         if hotword_payload:
             generate_kwargs["hotword"] = hotword_payload
@@ -62,7 +70,7 @@ class FunASREnhancedBackend:
             text = first.get("text", "")
         else:
             text = first
-        return str(text).strip()
+        return _normalize_transcript_spacing(str(text))
 
     def _ensure_model_loaded(self) -> None:
         if self._model is not None:
@@ -72,12 +80,21 @@ class FunASREnhancedBackend:
             if self._model is not None:
                 return
             AutoModel = self._load_automodel_ctor()
+            model_kwargs: dict[str, object] = {
+                "model": self._resolve_model_name(),
+                "punc_model": _DEFAULT_PUNCTUATION_MODEL,
+                "device": self.device_in_use,
+                "disable_update": True,
+                "disable_pbar": True,
+            }
+            if self._config.enable_vad:
+                model_kwargs["vad_model"] = _DEFAULT_VAD_MODEL
+                model_kwargs["vad_kwargs"] = {
+                    "max_single_segment_time": self._config.vad_max_single_segment_ms,
+                }
+                model_kwargs["merge_length_s"] = self._config.merge_length_s
             try:
-                self._model = AutoModel(
-                    model=self._resolve_model_name(),
-                    device=self.device_in_use,
-                    disable_update=True,
-                )
+                self._model = AutoModel(**model_kwargs)
             except Exception as error:
                 raise BackendUnavailableError(
                     backend_id=self.backend_id,
@@ -113,6 +130,11 @@ def _format_hotwords(hotwords: HotwordList) -> str | None:
     if not deduped:
         return None
     return "\n".join(deduped)
+
+
+def _normalize_transcript_spacing(text: str) -> str:
+    compacted = _WHITESPACE_RE.sub(" ", text).strip()
+    return _SPACE_AROUND_CJK_RE.sub("", compacted)
 
 
 def _normalize_device_label(device: str) -> str:

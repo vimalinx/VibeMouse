@@ -13,6 +13,18 @@ import numpy as np
 from numpy.typing import NDArray
 
 _LOG = logging.getLogger(__name__)
+_PREFERRED_SESSION_INPUT_NAMES = ("default", "pipewire", "pulse")
+_VIRTUAL_INPUT_NAMES = {
+    *_PREFERRED_SESSION_INPUT_NAMES,
+    "sysdefault",
+    "jack",
+    "lavrate",
+    "samplerate",
+    "speex",
+    "speexrate",
+    "upmix",
+    "vdownmix",
+}
 
 
 AudioFrame = NDArray[np.float32]
@@ -222,49 +234,52 @@ class AudioRecorder:
             if isinstance(candidate, int):
                 default_index = candidate
 
-        def _name(index: int) -> str:
-            if index < 0 or index >= len(devices):
-                return ""
-            item = devices[index]
-            if not isinstance(item, Mapping):
-                return ""
-            raw = item.get("name", "")
-            return raw if isinstance(raw, str) else ""
+        if default_index is not None:
+            default_entry = _entry_at(devices, default_index)
+            if default_entry is not None:
+                default_name = _device_name(default_entry)
+                if _is_usable_input(default_entry) and _is_preferred_session_input(
+                    default_name
+                ):
+                    return self._select_input_device(default_index, default_name)
+
+        candidates = [
+            (idx, entry)
+            for idx, entry in enumerate(devices)
+            if isinstance(entry, Mapping) and _is_usable_input(entry)
+        ]
+
+        for idx, entry in candidates:
+            name = _device_name(entry)
+            if _is_preferred_session_input(name):
+                return self._select_input_device(idx, name)
 
         if default_index is not None:
-            default_name = _name(default_index).lower()
-            if "monitor" not in default_name:
-                self._selected_input_device = default_index
-                return default_index
+            default_entry = _entry_at(devices, default_index)
+            if default_entry is not None and _is_usable_input(default_entry):
+                return self._select_input_device(
+                    default_index,
+                    _device_name(default_entry),
+                )
 
-        virtual_names = {
-            "default",
-            "pulse",
-            "pipewire",
-            "sysdefault",
-            "jack",
-            "lavrate",
-            "samplerate",
-            "speex",
-            "upmix",
-            "vdownmix",
-        }
-        for idx, entry in enumerate(devices):
-            if not isinstance(entry, Mapping):
-                continue
-            max_inputs = entry.get("max_input_channels", 0)
-            if not isinstance(max_inputs, int | float) or max_inputs <= 0:
-                continue
-            name_obj = entry.get("name", "")
-            if not isinstance(name_obj, str):
-                continue
-            name = name_obj.lower()
-            if "monitor" in name or name.strip() in virtual_names:
-                continue
-            self._selected_input_device = idx
-            return idx
+        for idx, entry in candidates:
+            name = _device_name(entry)
+            if _normalized_device_name(name) not in _VIRTUAL_INPUT_NAMES:
+                return self._select_input_device(idx, name)
+
+        for idx, entry in candidates:
+            return self._select_input_device(idx, _device_name(entry))
 
         return None
+
+    def _select_input_device(self, device: int | str, name: str) -> int | str:
+        self._selected_input_device = device
+        _LOG.info(
+            "Audio input device selected: device=%s name=%s",
+            device,
+            name or "unknown",
+        )
+        return device
 
     def _resolve_device_sample_rate(self, device: int | str | None) -> int | None:
         if self._sd is None:
@@ -297,3 +312,32 @@ def _coerce_device_list(devices_obj: object) -> list[object] | None:
     if isinstance(devices_obj, Iterable):
         return list(devices_obj)
     return None
+
+
+def _entry_at(devices: list[object], index: int) -> Mapping[str, object] | None:
+    if index < 0 or index >= len(devices):
+        return None
+    entry = devices[index]
+    if not isinstance(entry, Mapping):
+        return None
+    return entry
+
+
+def _device_name(entry: Mapping[str, object]) -> str:
+    raw = entry.get("name", "")
+    return raw if isinstance(raw, str) else ""
+
+
+def _normalized_device_name(name: str) -> str:
+    return name.strip().lower()
+
+
+def _is_usable_input(entry: Mapping[str, object]) -> bool:
+    max_inputs = entry.get("max_input_channels", 0)
+    if not isinstance(max_inputs, int | float) or max_inputs <= 0:
+        return False
+    return "monitor" not in _normalized_device_name(_device_name(entry))
+
+
+def _is_preferred_session_input(name: str) -> bool:
+    return _normalized_device_name(name) in _PREFERRED_SESSION_INPUT_NAMES

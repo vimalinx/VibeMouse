@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import final
 
 import numpy as np
@@ -24,10 +25,27 @@ class _FakeSoundFile:
         self.sample_rates.append(samplerate)
 
 
+class _FakeSoundDevice:
+    def __init__(
+        self,
+        devices: list[dict[str, object]],
+        *,
+        default_device: tuple[int, int] | list[int],
+    ) -> None:
+        self._devices = devices
+        self.default = SimpleNamespace(device=default_device)
+
+    def query_devices(self) -> list[dict[str, object]]:
+        return self._devices
+
+
 @final
 class _TestableAudioRecorder(AudioRecorder):
     def set_soundfile(self, soundfile: _FakeSoundFile) -> None:
         self._sf = soundfile
+
+    def set_sounddevice(self, sounddevice: _FakeSoundDevice) -> None:
+        self._sd = sounddevice
 
     def prime_recording(self, frame: NDArray[np.float32]) -> None:
         with self._lock:
@@ -69,3 +87,74 @@ class AudioRecorderTests(unittest.TestCase):
             self.assertEqual(first.path.suffix, ".wav")
             self.assertEqual(second.path.suffix, ".wav")
             self.assertEqual(soundfile.sample_rates, [16000, 16000])
+
+    def test_prefers_pipewire_session_input_before_raw_alsa_default(self) -> None:
+        recorder = _TestableAudioRecorder(
+            sample_rate=16000,
+            channels=1,
+            dtype="float32",
+            temp_dir=Path("/tmp"),
+        )
+        recorder.set_sounddevice(
+            _FakeSoundDevice(
+                [
+                    {
+                        "name": "HDA Intel PCH: ALC285 Analog (hw:0,0)",
+                        "max_input_channels": 2,
+                    },
+                    {"name": "pipewire", "max_input_channels": 128},
+                    {"name": "pulse", "max_input_channels": 32},
+                ],
+                default_device=(0, 0),
+            )
+        )
+
+        self.assertEqual(recorder._resolve_input_device(), 1)
+
+    def test_uses_default_session_input_when_default_device_is_virtual(self) -> None:
+        recorder = _TestableAudioRecorder(
+            sample_rate=16000,
+            channels=1,
+            dtype="float32",
+            temp_dir=Path("/tmp"),
+        )
+        recorder.set_sounddevice(
+            _FakeSoundDevice(
+                [
+                    {
+                        "name": "HDA Intel PCH: ALC285 Analog (hw:0,0)",
+                        "max_input_channels": 2,
+                    },
+                    {"name": "pipewire", "max_input_channels": 128},
+                    {"name": "default", "max_input_channels": 32},
+                ],
+                default_device=(2, 2),
+            )
+        )
+
+        self.assertEqual(recorder._resolve_input_device(), 2)
+
+    def test_falls_back_to_raw_input_when_no_session_input_exists(self) -> None:
+        recorder = _TestableAudioRecorder(
+            sample_rate=16000,
+            channels=1,
+            dtype="float32",
+            temp_dir=Path("/tmp"),
+        )
+        recorder.set_sounddevice(
+            _FakeSoundDevice(
+                [
+                    {
+                        "name": "Monitor of Built-in Audio",
+                        "max_input_channels": 2,
+                    },
+                    {
+                        "name": "USB Microphone",
+                        "max_input_channels": 1,
+                    },
+                ],
+                default_device=(-1, -1),
+            )
+        )
+
+        self.assertEqual(recorder._resolve_input_device(), 1)
