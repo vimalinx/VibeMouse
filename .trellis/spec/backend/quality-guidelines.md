@@ -136,6 +136,58 @@ Pick the first non-monitor non-virtual input device after default resolution. On
 
 Prefer `default`, `pipewire`, and `pulse` input devices first; only use raw hardware when no session-routed microphone device is available.
 
+## Scenario: Right-Button Gesture Capture on Wayland
+
+### 1. Scope / Trigger
+
+- Trigger: changing `vibemouse.listener.mouse_listener.SideButtonListener` right-button gesture handling, evdev button suppression, synthetic mouse replay, or Hyprland active-window logic.
+- This is a runtime input contract: a gesture candidate must not make ordinary file-manager or desktop right-clicks unreliable.
+
+### 2. Signatures
+
+- Listener constructor: `SideButtonListener(..., gestures_enabled: bool, gesture_trigger_button: str, gesture_threshold_px: int, system_integration: SystemIntegration | None = None)`
+- Right press entry: `_begin_right_trigger_press(source_device: _EvdevDevice | None = None, initial_position: tuple[int, int] | None = None) -> None`
+- Right release decision: `_consume_right_trigger_release() -> tuple[bool, str | None]`
+- Passive gesture dispatch: `_maybe_dispatch_passthrough_right_gesture() -> bool`
+
+### 3. Contracts
+
+- When `gesture_trigger_button == "right"` and the active Hyprland window reports `xwayland: false`, the listener must pass native right-button events through instead of using evdev suppression plus synthetic `pynput` replay.
+- Native Wayland passthrough may still observe relative movement and dispatch a configured gesture once movement reaches `gesture_threshold_px`.
+- If the listener does suppress the native right click, any release below the gesture threshold must replay a right click. Do not drop a click because of small pointer jitter or a normal hold duration.
+- Fullscreen windows must keep native right-button passthrough; horizontal gestures stay disabled there while vertical gestures remain available.
+
+### 4. Validation & Error Matrix
+
+- Native Wayland file-manager payload with `xwayland: false` -> no `_begin_button_suppress` call.
+- Native Wayland browser payload with `xwayland: false` -> no `_begin_button_suppress` call.
+- Suppressed right press plus subthreshold movement -> release returns `(True, None)`.
+- Suppressed right press plus long hold but no threshold gesture -> release returns `(True, None)`.
+- Suppressed right press plus threshold movement -> release returns `(False, "<direction>")`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: right-click in Nautilus/Dolphin/Thunar opens the native context menu even when right-button gestures are enabled.
+- Base: right-button horizontal movement above the threshold still emits `gesture.left` or `gesture.right` where not disabled.
+- Bad: grab the evdev device on right-button press, then skip replay because movement was 20px or the button was held for 0.5s.
+
+### 6. Tests Required
+
+- Unit test: native Wayland file-manager active-window payload keeps `_right_trigger_passthrough` true and does not call `_begin_button_suppress`.
+- Unit test: subthreshold right-button movement on the suppressed path replays a right click.
+- Unit test: held right-button release on the suppressed path replays a right click when no gesture threshold was reached.
+- Unit test: threshold movement dispatches a gesture and does not replay a right click.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+Treat a plain right click as a gesture candidate by grabbing the evdev device, then only replay the click when movement is under a tiny slop window.
+
+#### Correct
+
+Pass native Wayland right-button events through, and on any remaining suppressed path replay the right click whenever the movement did not reach the gesture threshold.
+
 ---
 
 ## Forbidden Patterns

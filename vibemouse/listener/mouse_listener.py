@@ -17,7 +17,6 @@ from vibemouse.core.commands import (
 from vibemouse.platform.system_integration import (
     SystemIntegration,
     create_system_integration,
-    is_browser_window_payload,
     is_fullscreen_window_payload,
 )
 
@@ -99,8 +98,6 @@ class SideButtonListener:
         self._right_trigger_origin_position: tuple[int, int] | None = None
         self._right_trigger_passthrough: bool = False
         self._right_trigger_horizontal_gesture_disabled: bool = False
-        self._right_tap_timeout_s: float = 0.30
-        self._right_click_slop_px: int = 8
         self._right_hold_suppress_timeout_s: float = 8.0
         self._stop: threading.Event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -478,10 +475,12 @@ class SideButtonListener:
         except Exception:
             return False
 
-        if payload is None or not is_browser_window_payload(payload):
+        if payload is None:
             return False
 
         xwayland = payload.get("xwayland")
+        # Native Wayland clients do not reliably accept synthetic pynput
+        # right-click replay, so keep their real right-click stream intact.
         return xwayland is False
 
     def _should_disable_right_trigger_horizontal_gesture(self) -> bool:
@@ -544,29 +543,17 @@ class SideButtonListener:
             self._clear_right_trigger_state()
             return False, None
 
-        now = time.monotonic()
-        pressed_since = self._right_trigger_pressed_since
         direction = self._classify_gesture(
             self._right_trigger_pending_dx,
             self._right_trigger_pending_dy,
             self._gesture_threshold_px,
-        )
-        movement_px = max(
-            abs(self._right_trigger_pending_dx),
-            abs(self._right_trigger_pending_dy),
         )
         suppressed_native_click = self._button_grabbed_label == "right"
 
         if suppressed_native_click:
             self._end_button_suppress(button_label="right")
 
-        should_replay = (
-            direction is None
-            and suppressed_native_click
-            and pressed_since is not None
-            and now - pressed_since <= self._right_tap_timeout_s
-            and movement_px <= self._right_click_slop_px
-        )
+        should_replay = direction is None and suppressed_native_click
         self._clear_right_trigger_state()
         return should_replay, direction
 

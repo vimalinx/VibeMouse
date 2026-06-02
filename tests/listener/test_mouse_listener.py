@@ -458,7 +458,7 @@ class SideButtonListenerGestureTests(unittest.TestCase):
 
         dispatch_click_async.assert_called_once_with("rear")
 
-    def test_consume_right_trigger_release_skips_replay_after_small_drag(
+    def test_consume_right_trigger_release_replays_after_subthreshold_drag(
         self,
     ) -> None:
         listener = SideButtonListener(
@@ -486,7 +486,7 @@ class SideButtonListenerGestureTests(unittest.TestCase):
         ):
             should_replay, gesture_direction = consume()
 
-        self.assertFalse(should_replay)
+        self.assertTrue(should_replay)
         self.assertIsNone(gesture_direction)
         end_suppress.assert_called_once_with(button_label="right")
         self.assertFalse(cast(bool, getattr(listener, "_right_trigger_pressed")))
@@ -544,6 +544,37 @@ class SideButtonListenerGestureTests(unittest.TestCase):
             gestures_enabled=True,
             gesture_trigger_button="right",
             system_integration=_BrowserSystemIntegration(),
+        )
+
+        begin = cast(Callable[..., None], getattr(listener, "_begin_right_trigger_press"))
+
+        with patch.object(listener, "_begin_button_suppress") as begin_suppress:
+            begin(initial_position=(1, 2))
+
+        self.assertTrue(cast(bool, getattr(listener, "_right_trigger_passthrough")))
+        self.assertTrue(cast(bool, getattr(listener, "_right_trigger_pressed")))
+        begin_suppress.assert_not_called()
+
+    def test_begin_right_trigger_press_passthroughs_native_wayland_file_manager(
+        self,
+    ) -> None:
+        class _FileManagerSystemIntegration(_NeutralSystemIntegration):
+            def active_window(self) -> dict[str, object] | None:
+                return {
+                    "class": "org.gnome.Nautilus",
+                    "initialClass": "org.gnome.Nautilus",
+                    "title": "Home",
+                    "xwayland": False,
+                }
+
+        listener = SideButtonListener(
+            on_front_press=_noop_button,
+            on_rear_press=_noop_button,
+            front_button="x1",
+            rear_button="x2",
+            gestures_enabled=True,
+            gesture_trigger_button="right",
+            system_integration=_FileManagerSystemIntegration(),
         )
 
         begin = cast(Callable[..., None], getattr(listener, "_begin_right_trigger_press"))
@@ -1019,7 +1050,7 @@ class SideButtonListenerGestureTests(unittest.TestCase):
         dispatch_click_async.assert_called_once_with("right")
 
 
-    def test_consume_right_trigger_release_skips_replay_after_hold(self) -> None:
+    def test_consume_right_trigger_release_replays_after_hold(self) -> None:
         listener = SideButtonListener(
             on_front_press=_noop_button,
             on_rear_press=_noop_button,
@@ -1043,7 +1074,7 @@ class SideButtonListenerGestureTests(unittest.TestCase):
         ):
             should_replay, gesture_direction = consume()
 
-        self.assertFalse(should_replay)
+        self.assertTrue(should_replay)
         self.assertIsNone(gesture_direction)
         end_suppress.assert_called_once_with(button_label="right")
         self.assertFalse(cast(bool, getattr(listener, "_right_trigger_pressed")))
