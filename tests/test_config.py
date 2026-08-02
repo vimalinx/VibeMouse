@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from vibemouse.config import load_config
@@ -35,7 +37,8 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.openclaw_retries, 0)
         self.assertEqual(config.front_button, "x1")
         self.assertEqual(config.rear_button, "x2")
-        self.assertEqual(config.record_hotkey_keycodes, (42, 125, 193))
+        expected_hotkeys = (16, 91, 134) if os.name == "nt" else (42, 125, 193)
+        self.assertEqual(config.record_hotkey_keycodes, expected_hotkeys)
         self.assertIsNone(config.recording_submit_keycode)
         self.assertEqual(config.bindings, {})
 
@@ -52,6 +55,17 @@ class LoadConfigTests(unittest.TestCase):
             config = load_config()
 
         self.assertEqual(config.record_hotkey_keycodes, (58, 125, 193))
+
+    def test_windows_defaults_use_windows_hotkeys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vibemouse-config-") as tmp:
+            config_path = Path(tmp) / "config.json"
+            with (
+                patch("vibemouse.config.schema.sys.platform", "win32"),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                config = load_config(config_path)
+
+        self.assertEqual(config.record_hotkey_keycodes, (16, 91, 134))
 
     def test_duplicate_record_hotkey_keycodes_are_rejected(self) -> None:
         with patch.dict(

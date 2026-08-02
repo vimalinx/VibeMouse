@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -33,10 +34,14 @@ def run_doctor(*, apply_fixes: bool = False) -> int:
         checks.extend(_check_openclaw(config))
 
     checks.append(_check_audio_input(config))
-    checks.append(_check_input_device_permissions(config))
-
-    checks.append(_check_hyprland_return_bind_conflict(config))
-    checks.append(_check_user_service_state())
+    if sys.platform.startswith("win"):
+        checks.append(_check_windows_input_hooks())
+        checks.append(_check_windows_startup_entry())
+        checks.append(_check_windows_background_process())
+    else:
+        checks.append(_check_input_device_permissions(config))
+        checks.append(_check_hyprland_return_bind_conflict(config))
+        checks.append(_check_user_service_state())
 
     _print_checks(checks)
 
@@ -47,6 +52,8 @@ def run_doctor(*, apply_fixes: bool = False) -> int:
 
 
 def _apply_doctor_fixes() -> None:
+    if sys.platform.startswith("win"):
+        return
     _fix_hyprland_return_bind_conflict()
     _ensure_user_service_active()
 
@@ -346,6 +353,98 @@ def _check_audio_input(config: AppConfig | None) -> DoctorCheck:
     )
 
 
+def _check_windows_input_hooks() -> DoctorCheck:
+    failures: list[str] = []
+    for module_name in ("pynput.mouse", "pynput.keyboard"):
+        try:
+            _ = importlib.import_module(module_name)
+        except Exception as error:
+            failures.append(f"{module_name}: {error}")
+
+    if failures:
+        return DoctorCheck(
+            name="input-hooks",
+            status="fail",
+            detail="; ".join(failures),
+        )
+
+    return DoctorCheck(
+        name="input-hooks",
+        status="ok",
+        detail="pynput mouse and keyboard hooks import successfully",
+    )
+
+
+def _check_windows_startup_entry() -> DoctorCheck:
+    startup_file = _windows_startup_file()
+    launcher_file = _windows_launcher_file()
+
+    if startup_file.exists() and launcher_file.exists():
+        return DoctorCheck(
+            name="startup-entry",
+            status="ok",
+            detail=f"startup entry present: {startup_file}",
+        )
+
+    if launcher_file.exists():
+        return DoctorCheck(
+            name="startup-entry",
+            status="warn",
+            detail=f"launcher exists but startup entry is missing: {startup_file}",
+        )
+
+    return DoctorCheck(
+        name="startup-entry",
+        status="warn",
+        detail=f"startup entry not found: {startup_file}",
+    )
+
+
+def _check_windows_background_process() -> DoctorCheck:
+    script = (
+        "$matches = Get-CimInstance Win32_Process | "
+        "Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ("
+        "$_.CommandLine -like '*vibemouse.main run*' -or "
+        "$_.CommandLine -like '*vibemouse-launch.ps1*' -or "
+        "$_.CommandLine -like '*vibemouse.exe run*'"
+        ") } | "
+        "ForEach-Object { $_.CommandLine }; "
+        "$matches"
+    )
+    probe = _run_subprocess(
+        ["powershell", "-NoProfile", "-Command", script],
+        timeout=8.0,
+    )
+    if probe is None:
+        return DoctorCheck(
+            name="background-process",
+            status="warn",
+            detail="could not query running processes",
+        )
+
+    if probe.returncode != 0:
+        stderr = probe.stderr.strip()
+        return DoctorCheck(
+            name="background-process",
+            status="warn",
+            detail=stderr or "process query failed",
+        )
+
+    lines = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+    if lines:
+        return DoctorCheck(
+            name="background-process",
+            status="ok",
+            detail=f"detected {len(lines)} VibeMouse process(es)",
+        )
+
+    return DoctorCheck(
+        name="background-process",
+        status="warn",
+        detail="no running VibeMouse process detected",
+    )
+
+
 def _check_input_device_permissions(config: AppConfig | None) -> DoctorCheck:
     if not sys.platform.startswith("linux"):
         return DoctorCheck(
@@ -608,3 +707,26 @@ def _print_checks(checks: list[DoctorCheck]) -> None:
             "fail": "[FAIL]",
         }.get(check.status, "[INFO]")
         print(f"{badge} {check.name}: {check.detail}")
+
+
+def _windows_roaming_dir() -> Path:
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        return Path(appdata)
+    return Path.home() / "AppData" / "Roaming"
+
+
+def _windows_startup_file() -> Path:
+    return (
+        _windows_roaming_dir()
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+        / "vibemouse.vbs"
+    )
+
+
+def _windows_launcher_file() -> Path:
+    return _windows_roaming_dir() / "VibeMouse" / "vibemouse-launch.ps1"

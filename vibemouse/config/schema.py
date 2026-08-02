@@ -97,6 +97,9 @@ def default_status_file() -> Path:
 
 
 def build_default_config_document() -> dict[str, object]:
+    record_hotkey_keycodes = (
+        [16, 91, 134] if sys.platform.startswith("win") else [42, 125, 193]
+    )
     return {
         "schema_version": LATEST_CONFIG_SCHEMA_VERSION,
         "bindings": {},
@@ -119,7 +122,7 @@ def build_default_config_document() -> dict[str, object]:
         "input": {
             "front_button": "x1",
             "rear_button": "x2",
-            "record_hotkey_keycodes": [42, 125, 193],
+            "record_hotkey_keycodes": record_hotkey_keycodes,
             "recording_submit_keycode": None,
             "button_debounce_ms": 150,
             "gestures_enabled": False,

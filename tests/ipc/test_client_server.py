@@ -6,12 +6,16 @@ import io
 import json
 import socket
 import struct
+import sys
 import threading
 import time
+from pathlib import Path
+
+import pytest
 
 from vibemouse.ipc.client import IPCClient
 from vibemouse.ipc.messages import make_command_message, write_lpjson_frame
-from vibemouse.ipc.server import AgentCommandServer, IPCServer
+from vibemouse.ipc.server import AgentCommandServer, IPCServer, default_command_endpoint
 
 
 def test_ipc_client_send_event() -> None:
@@ -78,7 +82,17 @@ def test_ipc_server_receives_command_when_handler_is_configured() -> None:
     assert received == ["reload_config"]
 
 
-def test_agent_command_server_accepts_loopback_command() -> None:
+def test_default_command_endpoint_uses_stable_local_address() -> None:
+    endpoint = default_command_endpoint()
+    if sys.platform == "win32":
+        assert endpoint == r"\\.\pipe\vibemouse"
+    else:
+        assert Path(endpoint).name == "vibemouse.sock"
+
+
+def test_agent_command_server_accepts_local_command() -> None:
+    if sys.platform == "win32":
+        pytest.skip("End-to-end named pipe client coverage is not implemented in this test")
     received: list[str] = []
     ready = threading.Event()
 
@@ -89,7 +103,9 @@ def test_agent_command_server_accepts_loopback_command() -> None:
     server = AgentCommandServer(on_command=on_command)
     server.start()
     try:
-        with socket.create_connection(("127.0.0.1", server.port), timeout=2) as conn:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(2)
+            conn.connect(server.endpoint)
             stream = conn.makefile("rwb")
             write_lpjson_frame(stream, make_command_message("shutdown"))
             stream.close()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,7 +21,8 @@ class ConfigStoreTests(unittest.TestCase):
         self.assertEqual(config.log_level, "INFO")
         self.assertEqual(config.front_button, "x1")
         self.assertEqual(config.rear_button, "x2")
-        self.assertEqual(config.record_hotkey_keycodes, (42, 125, 193))
+        expected_hotkeys = (16, 91, 134) if os.name == "nt" else (42, 125, 193)
+        self.assertEqual(config.record_hotkey_keycodes, expected_hotkeys)
         self.assertEqual(config.status_file.name, "vibemouse-status.json")
 
     def test_json_config_values_are_loaded(self) -> None:

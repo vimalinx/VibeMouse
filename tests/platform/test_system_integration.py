@@ -8,6 +8,7 @@ from unittest.mock import patch
 from vibemouse.system_integration import (
     HyprlandSystemIntegration,
     NoopSystemIntegration,
+    WindowsSystemIntegration,
     create_system_integration,
     detect_hyprland_session,
     is_browser_window_payload,
@@ -37,9 +38,9 @@ class SystemIntegrationDetectionTests(unittest.TestCase):
         integration = create_system_integration(env={}, platform_name="linux")
         self.assertIsInstance(integration, NoopSystemIntegration)
 
-    def test_factory_returns_noop_on_non_hyprland_windows(self) -> None:
+    def test_factory_returns_windows_integration_on_non_hyprland_windows(self) -> None:
         integration = create_system_integration(env={}, platform_name="win32")
-        self.assertIsInstance(integration, NoopSystemIntegration)
+        self.assertIsInstance(integration, WindowsSystemIntegration)
 
     def test_factory_returns_noop_on_non_hyprland_macos(self) -> None:
         integration = create_system_integration(env={}, platform_name="darwin")
@@ -163,16 +164,22 @@ class HyprlandSystemIntegrationTests(unittest.TestCase):
         self.assertFalse(is_browser_window_payload(payload))
 
     def test_probe_text_input_focus_returns_true_when_script_outputs_one(self) -> None:
-        with patch(
-            "vibemouse.system_integration.subprocess.run",
-            return_value=SimpleNamespace(returncode=0, stdout="1\n"),
+        with (
+            patch("vibemouse.system_integration.sys.platform", "linux"),
+            patch(
+                "vibemouse.system_integration.subprocess.run",
+                return_value=SimpleNamespace(returncode=0, stdout="1\n"),
+            ),
         ):
             self.assertTrue(probe_text_input_focus_via_atspi())
 
     def test_probe_text_input_focus_timeout_returns_false(self) -> None:
-        with patch(
-            "vibemouse.system_integration.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd=["python3"], timeout=1.5),
+        with (
+            patch("vibemouse.system_integration.sys.platform", "linux"),
+            patch(
+                "vibemouse.system_integration.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd=["python3"], timeout=1.5),
+            ),
         ):
             self.assertFalse(probe_text_input_focus_via_atspi())
 
@@ -200,3 +207,27 @@ class HyprlandSystemIntegrationTests(unittest.TestCase):
 
     def test_probe_send_enter_without_module_returns_false(self) -> None:
         self.assertFalse(probe_send_enter_via_atspi(atspi_module=None, lazy_load=False))
+
+
+class WindowsSystemIntegrationTests(unittest.TestCase):
+    def test_windows_paste_shortcuts_match_terminal_conventions(self) -> None:
+        integration = WindowsSystemIntegration()
+        self.assertEqual(
+            integration.paste_shortcuts(terminal_active=True),
+            (("CTRL SHIFT", "V"), ("SHIFT", "Insert"), ("CTRL", "V")),
+        )
+        self.assertEqual(
+            integration.paste_shortcuts(terminal_active=False),
+            (("CTRL", "V"),),
+        )
+
+    def test_windows_switch_workspace_uses_ctrl_win_arrow(self) -> None:
+        integration = WindowsSystemIntegration()
+        with patch.object(integration, "send_shortcut", return_value=True) as send_shortcut:
+            ok = integration.switch_workspace("left")
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            send_shortcut.call_args.kwargs,
+            {"mod": "CTRL WIN", "key": "Left"},
+        )

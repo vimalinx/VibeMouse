@@ -48,7 +48,10 @@ class TextOutputFocusProbeTests(unittest.TestCase):
                 captured_timeouts.append(timeout)
             return SimpleNamespace(returncode=0, stdout="1\n")
 
-        with patch("vibemouse.system_integration.subprocess.run", side_effect=fake_run):
+        with (
+            patch("vibemouse.system_integration.sys.platform", "linux"),
+            patch("vibemouse.system_integration.subprocess.run", side_effect=fake_run),
+        ):
             subject = self._make_subject()
             probe = cast(Callable[[], bool], getattr(subject, "_is_text_input_focused"))
             call_probe: Callable[[], bool] = probe
@@ -57,25 +60,31 @@ class TextOutputFocusProbeTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(captured_timeouts, [1.5])
 
-    @patch(
-        "vibemouse.system_integration.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(
-            cmd=["python3", "-c", "..."], timeout=1.5
-        ),
-    )
-    def test_focus_probe_timeout_returns_false(self, _mock_run: object) -> None:
-        subject = self._make_subject()
-        probe = cast(Callable[[], bool], getattr(subject, "_is_text_input_focused"))
-        self.assertFalse(probe())
+    def test_focus_probe_timeout_returns_false(self) -> None:
+        with (
+            patch("vibemouse.system_integration.sys.platform", "linux"),
+            patch(
+                "vibemouse.system_integration.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(
+                    cmd=["python3", "-c", "..."], timeout=1.5
+                ),
+            ),
+        ):
+            subject = self._make_subject()
+            probe = cast(Callable[[], bool], getattr(subject, "_is_text_input_focused"))
+            self.assertFalse(probe())
 
-    @patch(
-        "vibemouse.system_integration.subprocess.run",
-        side_effect=OSError("spawn failed"),
-    )
-    def test_focus_probe_oserror_returns_false(self, _mock_run: object) -> None:
-        subject = self._make_subject()
-        probe = cast(Callable[[], bool], getattr(subject, "_is_text_input_focused"))
-        self.assertFalse(probe())
+    def test_focus_probe_oserror_returns_false(self) -> None:
+        with (
+            patch("vibemouse.system_integration.sys.platform", "linux"),
+            patch(
+                "vibemouse.system_integration.subprocess.run",
+                side_effect=OSError("spawn failed"),
+            ),
+        ):
+            subject = self._make_subject()
+            probe = cast(Callable[[], bool], getattr(subject, "_is_text_input_focused"))
+            self.assertFalse(probe())
 
     def test_focus_probe_prefers_system_integration_result(self) -> None:
         subject = self._make_subject()
@@ -189,11 +198,10 @@ class TextOutputRoutingTests(unittest.TestCase):
             patch("vibemouse.output.pyperclip.copy") as copy_mock,
         ):
             route = subject.send_to_openclaw("hello")
+            detail = subject.send_to_openclaw_result("hello")
 
         self.assertEqual(route, "clipboard")
-        self.assertEqual(copy_mock.call_count, 1)
-
-        detail = subject.send_to_openclaw_result("hello")
+        self.assertEqual(copy_mock.call_count, 2)
         self.assertEqual(detail.route, "clipboard")
         self.assertEqual(detail.reason, "invalid_command")
 

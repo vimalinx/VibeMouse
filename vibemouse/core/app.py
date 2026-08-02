@@ -551,7 +551,10 @@ class VoiceMouseApp:
             return
         self._command_server = AgentCommandServer(on_command=self._execute_command)
         self._command_server.start()
-        _LOG.info("Agent command server listening on 127.0.0.1:%s", self._command_server.port)
+        _LOG.info(
+            "Agent command server listening on %s",
+            self._command_server.endpoint,
+        )
 
     def _start_listener_mode(self) -> None:
         if self._listener_mode == "child":
@@ -629,8 +632,10 @@ class VoiceMouseApp:
             "listener_mode": mode,
         }
         command_server = getattr(self, "_command_server", None)
-        if command_server is not None and getattr(command_server, "port", 0):
-            payload["ipc_port"] = int(command_server.port)
+        if command_server is not None:
+            endpoint = getattr(command_server, "endpoint", "")
+            if isinstance(endpoint, str) and endpoint:
+                payload["ipc_socket"] = endpoint
         try:
             write_status(self._config.status_file, payload)
         except Exception:

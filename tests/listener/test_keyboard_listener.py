@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import cast
 
 from vibemouse.core.commands import EVENT_HOTKEY_RECORD_TOGGLE
@@ -82,3 +83,22 @@ class KeyboardHotkeyListenerTests(unittest.TestCase):
         dispatch()
 
         self.assertEqual(seen, [EVENT_HOTKEY_RECORD_TOGGLE])
+
+    def test_windows_modifier_keycodes_are_normalized(self) -> None:
+        listener = KeyboardHotkeyListener(
+            on_hotkey=_noop, keycodes=(16, 91, 134), debounce_s=0.0
+        )
+        process = cast(
+            Callable[[int, int], bool], getattr(listener, "_process_key_event")
+        )
+
+        self.assertFalse(process(160, 1))
+        self.assertFalse(process(92, 1))
+        self.assertTrue(process(134, 1))
+
+    def test_extract_windows_keycode_prefers_vk_attribute(self) -> None:
+        extract = cast(
+            Callable[[object], int | None],
+            getattr(KeyboardHotkeyListener, "_extract_windows_keycode"),
+        )
+        self.assertEqual(extract(SimpleNamespace(vk=160)), 16)

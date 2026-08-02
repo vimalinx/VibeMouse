@@ -8,6 +8,8 @@ AI 适配指南：
 - English: [`docs/AI_ASSISTANT_DEPLOYMENT.md`](./docs/AI_ASSISTANT_DEPLOYMENT.md)
 - 中文：[`docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md`](./docs/AI_ASSISTANT_DEPLOYMENT.zh-CN.md)
 - AI 调试 Runbook：[`docs/AI_DEBUG_RUNBOOK.md`](./docs/AI_DEBUG_RUNBOOK.md)
+- IPC integration: [`docs/IPC.md`](./docs/IPC.md)
+- IPC 集成说明：[`docs/IPC.zh-CN.md`](./docs/IPC.zh-CN.md)
 
 ## 这个项目解决什么问题
 

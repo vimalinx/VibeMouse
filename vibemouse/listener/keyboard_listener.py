@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import select
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -32,7 +33,9 @@ class KeyboardHotkeyListener:
         self._on_hotkey: HotkeyCallback | None = on_hotkey
         self._on_event: EventCallback | None = on_event
         self._event_name: str | None = event_name
-        self._combo: frozenset[int] = frozenset(keycodes)
+        self._combo: frozenset[int] = frozenset(
+            self._normalize_configured_keycode(code) for code in keycodes
+        )
         self._debounce_s: float = max(0.0, debounce_s)
         self._rescan_interval_s: float = max(0.2, rescan_interval_s)
         self._state_lock: threading.Lock = threading.Lock()
@@ -58,7 +61,10 @@ class KeyboardHotkeyListener:
         last_error_summary: str | None = None
         while not self._stop.is_set():
             try:
-                self._run_evdev()
+                if sys.platform.startswith("win"):
+                    self._run_pynput(timeout_s=self._rescan_interval_s)
+                else:
+                    self._run_evdev()
                 self._reset_pressed_state()
                 continue
             except Exception as error:
@@ -89,7 +95,10 @@ class KeyboardHotkeyListener:
             try:
                 caps = dev.capabilities()
                 key_cap = caps.get(ecodes.EV_KEY, [])
-                if not any(code in key_cap for code in self._combo):
+                normalized_caps = {
+                    self._normalize_configured_keycode(int(code)) for code in key_cap
+                }
+                if not any(code in normalized_caps for code in self._combo):
                     dev.close()
                     continue
                 if ecodes.KEY_A not in key_cap:
@@ -132,17 +141,52 @@ class KeyboardHotkeyListener:
             for dev in devices:
                 dev.close()
 
+    def _run_pynput(self, *, timeout_s: float | None = None) -> None:
+        try:
+            keyboard_module = importlib.import_module("pynput.keyboard")
+        except Exception as error:
+            raise RuntimeError("pynput.keyboard is not available") from error
+
+        listener_ctor = cast(_KeyboardListenerCtor, getattr(keyboard_module, "Listener"))
+
+        def on_press(key: object) -> None:
+            keycode = self._extract_windows_keycode(key)
+            if keycode is None:
+                return
+            if self._process_key_event(keycode, 1):
+                self._dispatch_hotkey()
+
+        def on_release(key: object) -> None:
+            keycode = self._extract_windows_keycode(key)
+            if keycode is None:
+                return
+            _ = self._process_key_event(keycode, 0)
+
+        listener = listener_ctor(on_press=on_press, on_release=on_release)
+        listener.start()
+        deadline: float | None = None
+        if timeout_s is not None:
+            deadline = time.monotonic() + max(0.2, timeout_s)
+        try:
+            while not self._stop.is_set():
+                if deadline is not None and time.monotonic() >= deadline:
+                    return
+                time.sleep(0.2)
+        finally:
+            listener.stop()
+
     def _reset_pressed_state(self) -> None:
         with self._state_lock:
             self._pressed.clear()
             self._combo_latched = False
 
     def _process_key_event(self, keycode: int, value: int) -> bool:
+        normalized = self._normalize_runtime_keycode(keycode)
         with self._state_lock:
             if value == 1:
-                self._pressed.add(keycode)
+                self._pressed.add(normalized)
             elif value == 0:
-                self._pressed.discard(keycode)
+                self._pressed.discard(normalized)
             else:
                 return False
 
@@ -159,6 +203,41 @@ class KeyboardHotkeyListener:
                 self._last_fire_monotonic = now
                 return True
             return False
+
+    @classmethod
+    def _normalize_configured_keycode(cls, keycode: int) -> int:
+        return cls._normalize_windows_vk(keycode)
+
+    @classmethod
+    def _normalize_runtime_keycode(cls, keycode: int) -> int:
+        return cls._normalize_windows_vk(keycode)
+
+    @staticmethod
+    def _normalize_windows_vk(keycode: int) -> int:
+        mapping = {
+            160: 16,
+            161: 16,
+            162: 17,
+            163: 17,
+            164: 18,
+            165: 18,
+            92: 91,
+        }
+        return mapping.get(int(keycode), int(keycode))
+
+    @classmethod
+    def _extract_windows_keycode(cls, key: object) -> int | None:
+        vk = getattr(key, "vk", None)
+        if isinstance(vk, int):
+            return cls._normalize_windows_vk(vk)
+        value = getattr(key, "value", None)
+        nested_vk = getattr(value, "vk", None)
+        if isinstance(nested_vk, int):
+            return cls._normalize_windows_vk(nested_vk)
+        char = getattr(key, "char", None)
+        if isinstance(char, str) and len(char) == 1:
+            return ord(char.upper())
+        return None
 
     def _dispatch_hotkey(self) -> None:
         event_name = self._event_name
@@ -197,3 +276,18 @@ class _ListDevicesFn(Protocol):
 class _Ecodes(Protocol):
     EV_KEY: int
     KEY_A: int
+
+
+class _KeyboardListener(Protocol):
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+
+class _KeyboardListenerCtor(Protocol):
+    def __call__(
+        self,
+        *,
+        on_press: Callable[[object], None] | None = None,
+        on_release: Callable[[object], None] | None = None,
+    ) -> _KeyboardListener: ...

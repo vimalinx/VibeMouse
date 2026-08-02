@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import shutil
 import subprocess
@@ -42,18 +43,13 @@ def configure_deploy_parser(parser: argparse.ArgumentParser) -> None:
     )
     _ = parser.add_argument(
         "--env-file",
-        default=str(Path.home() / ".config" / "vibemouse" / "deploy.env"),
-        help="path to generated EnvironmentFile",
-    )
-    _ = parser.add_argument(
-        "--service-file",
-        default=str(Path.home() / ".config" / "systemd" / "user" / "vibemouse.service"),
-        help="path to generated systemd user service file",
+        default=str(_default_env_file()),
+        help="path to generated environment file",
     )
     _ = parser.add_argument(
         "--log-file",
-        default=str(Path.home() / ".local" / "state" / "vibemouse" / "service.log"),
-        help="path to persistent service log file",
+        default=str(_default_log_file()),
+        help="path to persistent log file",
     )
     _ = parser.add_argument(
         "--openclaw-command",
@@ -77,15 +73,40 @@ def configure_deploy_parser(parser: argparse.ArgumentParser) -> None:
         help="override ExecStart command",
     )
     _ = parser.add_argument(
-        "--skip-systemctl",
-        action="store_true",
-        help="skip systemctl enable/restart operations",
-    )
-    _ = parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print plan without writing files",
     )
+
+    if _is_windows():
+        _ = parser.add_argument(
+            "--launcher-file",
+            default=str(_default_windows_launcher_file()),
+            help="path to generated PowerShell launcher",
+        )
+        _ = parser.add_argument(
+            "--startup-file",
+            default=str(_default_windows_startup_file()),
+            help="path to generated Startup-folder entry",
+        )
+        _ = parser.add_argument(
+            "--skip-register",
+            action="store_true",
+            help="skip creating the Startup-folder entry",
+        )
+    else:
+        _ = parser.add_argument(
+            "--service-file",
+            default=str(
+                Path.home() / ".config" / "systemd" / "user" / "vibemouse.service"
+            ),
+            help="path to generated systemd user service file",
+        )
+        _ = parser.add_argument(
+            "--skip-systemctl",
+            action="store_true",
+            help="skip systemctl enable/restart operations",
+        )
 
 
 def run_deploy(args: argparse.Namespace) -> int:
@@ -108,7 +129,6 @@ def run_deploy(args: argparse.Namespace) -> int:
         return 1
 
     env_path = Path(str(getattr(args, "env_file", ""))).expanduser()
-    service_path = Path(str(getattr(args, "service_file", ""))).expanduser()
     log_path = Path(str(getattr(args, "log_file", ""))).expanduser()
     exec_start = _resolve_exec_start(str(getattr(args, "exec_start", "") or ""))
 
@@ -119,14 +139,45 @@ def run_deploy(args: argparse.Namespace) -> int:
         openclaw_retries=retries_override,
     )
     env_content = render_env_file(env_map)
+
+    if _is_windows():
+        launcher_path = Path(str(getattr(args, "launcher_file", ""))).expanduser()
+        startup_path = Path(str(getattr(args, "startup_file", ""))).expanduser()
+        launcher_content = render_windows_launcher(
+            env_file=env_path,
+            log_file=log_path,
+            exec_start=exec_start,
+        )
+        startup_content = render_windows_startup_file(launcher_file=launcher_path)
+
+        if bool(getattr(args, "dry_run", False)):
+            print(f"[DRY-RUN] would write {env_path}")
+            print(f"[DRY-RUN] would write {launcher_path}")
+            if not bool(getattr(args, "skip_register", False)):
+                print(f"[DRY-RUN] would write {startup_path}")
+            print(f"[DRY-RUN] preset={preset}")
+            print(f"[DRY-RUN] exec_start={exec_start}")
+            return 0
+
+        _write_text(env_path, env_content)
+        _write_text(launcher_path, launcher_content)
+        print(f"Wrote {env_path}")
+        print(f"Wrote {launcher_path}")
+        if not bool(getattr(args, "skip_register", False)):
+            _write_text(startup_path, startup_content)
+            print(f"Wrote {startup_path}")
+
+        print("Running doctor checks...")
+        return run_doctor()
+
+    service_path = Path(str(getattr(args, "service_file", ""))).expanduser()
     service_content = render_service_file(
         env_file=env_path,
         log_file=log_path,
         exec_start=exec_start,
     )
 
-    dry_run = bool(getattr(args, "dry_run", False))
-    if dry_run:
+    if bool(getattr(args, "dry_run", False)):
         print(f"[DRY-RUN] would write {env_path}")
         print(f"[DRY-RUN] would write {service_path}")
         print(f"[DRY-RUN] preset={preset}")
@@ -158,6 +209,11 @@ def build_deploy_env(
     openclaw_agent: str,
     openclaw_retries: int | None,
 ) -> dict[str, str]:
+    status_file = (
+        _default_windows_status_file()
+        if _is_windows()
+        else "%t/vibemouse-status.json"
+    )
     base = {
         "VIBEMOUSE_BACKEND": "funasr_onnx",
         "VIBEMOUSE_DEVICE": "cpu",
@@ -166,7 +222,7 @@ def build_deploy_env(
         "VIBEMOUSE_OPENCLAW_COMMAND": openclaw_command,
         "VIBEMOUSE_OPENCLAW_AGENT": openclaw_agent,
         "VIBEMOUSE_OPENCLAW_TIMEOUT_S": "20.0",
-        "VIBEMOUSE_STATUS_FILE": "%t/vibemouse-status.json",
+        "VIBEMOUSE_STATUS_FILE": status_file,
     }
     base.update(_PRESET_OVERRIDES[preset])
     if openclaw_retries is not None:
@@ -177,7 +233,7 @@ def build_deploy_env(
 def render_env_file(env_map: dict[str, str]) -> str:
     lines = [
         "# Generated by `vibemouse deploy`.",
-        "# Edit values if needed, then: systemctl --user restart vibemouse.service",
+        "# Edit values if needed, then restart VibeMouse.",
     ]
     for key in sorted(env_map.keys()):
         lines.append(f"{key}={_quote_env_value(env_map[key])}")
@@ -212,6 +268,56 @@ def render_service_file(*, env_file: Path, log_file: Path, exec_start: str) -> s
     return "\n".join(lines)
 
 
+def render_windows_launcher(*, env_file: Path, log_file: Path, exec_start: str) -> str:
+    lines = [
+        '$ErrorActionPreference = "Stop"',
+        f"$envFile = '{_ps_single_quote(str(env_file))}'",
+        f"$logFile = '{_ps_single_quote(str(log_file))}'",
+        "$commandLine = @'",
+        exec_start,
+        "'@.Trim()",
+        "",
+        "if (Test-Path $envFile) {",
+        "  Get-Content $envFile | ForEach-Object {",
+        "    $line = $_.Trim()",
+        '    if (-not $line -or $line.StartsWith("#")) { return }',
+        '    $parts = $line -split "=", 2',
+        "    if ($parts.Length -ne 2) { return }",
+        "    $name = $parts[0].Trim()",
+        "    $value = $parts[1].Trim()",
+        '    if ($value.Length -ge 2 -and $value.StartsWith(\'"\') -and $value.EndsWith(\'"\')) {',
+        "      $value = $value.Substring(1, $value.Length - 2)",
+        '      $value = $value.Replace(\'\\\\\', \'\\\')',
+        '      $value = $value.Replace(\'\\"\', \'"\')',
+        "    }",
+        '    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")',
+        "  }",
+        "}",
+        "",
+        "$logDir = Split-Path -Parent $logFile",
+        'New-Item -ItemType Directory -Path $logDir -Force | Out-Null',
+        '& cmd.exe /d /c "$commandLine >> `"$logFile`" 2>>&1"',
+        "exit $LASTEXITCODE",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def render_windows_startup_file(*, launcher_file: Path) -> str:
+    launcher = str(launcher_file).replace('"', '""')
+    command = (
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden '
+        + f'-File "{launcher}"'
+    )
+    return "\n".join(
+        [
+            'Set shell = CreateObject("WScript.Shell")',
+            f'shell.Run "{command.replace(chr(34), chr(34) * 2)}", 0, False',
+            "",
+        ]
+    )
+
+
 def _quote_env_value(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
@@ -224,10 +330,10 @@ def _resolve_exec_start(raw_exec_start: str) -> str:
 
     vibemouse_bin = shutil.which("vibemouse")
     if vibemouse_bin:
-        return f"{vibemouse_bin} run"
+        return f'{_quote_shell_path(vibemouse_bin)} run'
 
     python_bin = sys.executable
-    return f"{python_bin} -m vibemouse.main run"
+    return f'{_quote_shell_path(python_bin)} -m vibemouse.main run'
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -266,3 +372,66 @@ def validate_openclaw_command(raw: str) -> bool:
     except ValueError:
         return False
     return bool(parts)
+
+
+def _is_windows() -> bool:
+    return sys.platform.startswith("win")
+
+
+def _default_env_file() -> Path:
+    if _is_windows():
+        return _windows_roaming_dir() / "VibeMouse" / "deploy.env"
+    return Path.home() / ".config" / "vibemouse" / "deploy.env"
+
+
+def _default_log_file() -> Path:
+    if _is_windows():
+        return _windows_local_dir() / "VibeMouse" / "service.log"
+    return Path.home() / ".local" / "state" / "vibemouse" / "service.log"
+
+
+def _default_windows_status_file() -> str:
+    return str(_windows_local_dir() / "VibeMouse" / "vibemouse-status.json")
+
+
+def _default_windows_launcher_file() -> Path:
+    return _windows_roaming_dir() / "VibeMouse" / "vibemouse-launch.ps1"
+
+
+def _default_windows_startup_file() -> Path:
+    return _windows_startup_dir() / "vibemouse.vbs"
+
+
+def _windows_roaming_dir() -> Path:
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        return Path(appdata)
+    return Path.home() / "AppData" / "Roaming"
+
+
+def _windows_local_dir() -> Path:
+    localappdata = os.getenv("LOCALAPPDATA")
+    if localappdata:
+        return Path(localappdata)
+    return Path.home() / "AppData" / "Local"
+
+
+def _windows_startup_dir() -> Path:
+    return (
+        _windows_roaming_dir()
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+    )
+
+
+def _quote_shell_path(path: str) -> str:
+    if " " in path or "\t" in path:
+        return f'"{path}"'
+    return path
+
+
+def _ps_single_quote(value: str) -> str:
+    return value.replace("'", "''")

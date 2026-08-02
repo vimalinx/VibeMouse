@@ -15,6 +15,9 @@ from vibemouse.doctor import (
     _fix_hyprland_return_bind_conflict,
     _check_hyprland_return_bind_conflict,
     _check_openclaw,
+    _check_windows_background_process,
+    _check_windows_input_hooks,
+    _check_windows_startup_entry,
     _parse_openclaw_command,
     run_doctor,
 )
@@ -180,6 +183,7 @@ class DoctorHelpersTests(unittest.TestCase):
 
     def test_apply_doctor_fixes_runs_both_fixers(self) -> None:
         with (
+            patch("vibemouse.doctor.sys.platform", "linux"),
             patch("vibemouse.doctor._fix_hyprland_return_bind_conflict") as fix_bind,
             patch("vibemouse.doctor._ensure_user_service_active") as fix_service,
         ):
@@ -188,10 +192,51 @@ class DoctorHelpersTests(unittest.TestCase):
         self.assertEqual(fix_bind.call_count, 1)
         self.assertEqual(fix_service.call_count, 1)
 
+    def test_windows_input_hooks_fail_when_pynput_import_fails(self) -> None:
+        with patch(
+            "vibemouse.doctor.importlib.import_module",
+            side_effect=ModuleNotFoundError("pynput"),
+        ):
+            check = _check_windows_input_hooks()
+
+        self.assertEqual(check.status, "fail")
+        self.assertIn("pynput.mouse", check.detail)
+
+    def test_windows_startup_entry_warns_when_missing(self) -> None:
+        with (
+            patch(
+                "vibemouse.doctor._windows_startup_file",
+                return_value=Path("C:/Users/Test/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/vibemouse.vbs"),
+            ),
+            patch(
+                "vibemouse.doctor._windows_launcher_file",
+                return_value=Path("C:/Users/Test/AppData/Roaming/VibeMouse/vibemouse-launch.ps1"),
+            ),
+        ):
+            check = _check_windows_startup_entry()
+
+        self.assertEqual(check.status, "warn")
+        self.assertIn("startup entry not found", check.detail)
+
+    def test_windows_background_process_reports_running_process(self) -> None:
+        with patch(
+            "vibemouse.doctor._run_subprocess",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout="python -m vibemouse.main run\n",
+                stderr="",
+            ),
+        ):
+            check = _check_windows_background_process()
+
+        self.assertEqual(check.status, "ok")
+        self.assertIn("detected 1 VibeMouse process", check.detail)
+
 
 class DoctorCommandTests(unittest.TestCase):
     def test_run_doctor_returns_nonzero_when_fail_exists(self) -> None:
         with (
+            patch("vibemouse.doctor.sys.platform", "linux"),
             patch(
                 "vibemouse.doctor._check_config_load",
                 return_value=(
@@ -216,6 +261,7 @@ class DoctorCommandTests(unittest.TestCase):
 
     def test_run_doctor_with_fix_invokes_fix_path(self) -> None:
         with (
+            patch("vibemouse.doctor.sys.platform", "linux"),
             patch("vibemouse.doctor._apply_doctor_fixes") as apply_fixes,
             patch(
                 "vibemouse.doctor._check_config_load",
@@ -258,3 +304,55 @@ class DoctorCommandTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(apply_fixes.call_count, 1)
+
+    def test_run_doctor_on_windows_uses_windows_checks(self) -> None:
+        with (
+            patch("vibemouse.doctor.sys.platform", "win32"),
+            patch(
+                "vibemouse.doctor._check_config_load",
+                return_value=(
+                    DoctorCheck("config", "ok", "ok"),
+                    cast(
+                        AppConfig,
+                        cast(
+                            object,
+                            SimpleNamespace(
+                                openclaw_command="openclaw",
+                                openclaw_agent="main",
+                                sample_rate=16000,
+                                channels=1,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            patch("vibemouse.doctor._check_openclaw", return_value=[]),
+            patch(
+                "vibemouse.doctor._check_audio_input",
+                return_value=DoctorCheck("audio", "ok", "ok"),
+            ),
+            patch(
+                "vibemouse.doctor._check_windows_input_hooks",
+                return_value=DoctorCheck("hooks", "ok", "ok"),
+            ) as hooks_check,
+            patch(
+                "vibemouse.doctor._check_windows_startup_entry",
+                return_value=DoctorCheck("startup", "ok", "ok"),
+            ) as startup_check,
+            patch(
+                "vibemouse.doctor._check_windows_background_process",
+                return_value=DoctorCheck("process", "ok", "ok"),
+            ) as process_check,
+            patch("vibemouse.doctor._check_input_device_permissions") as linux_input,
+            patch("vibemouse.doctor._check_hyprland_return_bind_conflict") as linux_bind,
+            patch("vibemouse.doctor._check_user_service_state") as linux_service,
+        ):
+            rc = run_doctor()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(hooks_check.call_count, 1)
+        self.assertEqual(startup_check.call_count, 1)
+        self.assertEqual(process_check.call_count, 1)
+        self.assertEqual(linux_input.call_count, 0)
+        self.assertEqual(linux_bind.call_count, 0)
+        self.assertEqual(linux_service.call_count, 0)
